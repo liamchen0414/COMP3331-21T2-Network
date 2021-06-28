@@ -29,7 +29,7 @@ public class PingServer
       // Create a datagram socket for receiving and sending UDP packets
       // through the port specified on the command line.
       DatagramSocket socket = new DatagramSocket(port);
-
+      
       // Processing loop.
       while (true) {
          // Create a datagram packet to hold incoming UDP packet.
@@ -77,7 +77,7 @@ public class PingServer
       // so you can read the data as a stream of characters.
       InputStreamReader isr = new InputStreamReader(bais);
 
-      // Wrap the input stream reader in a bufferred reader,
+      // Wrap the input stream reader in a buffered reader,
       // so you can read the character data a line at a time.
       // (A line is a sequence of chars terminated by any combination of \r and \n.) 
       BufferedReader br = new BufferedReader(isr);

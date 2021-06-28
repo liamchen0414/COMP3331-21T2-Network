@@ -49,46 +49,44 @@ public class PingClient {
 				date = new Date();
 				long endTime = date.getTime();
 				delay[i] = endTime - startTime;
-				System.out.println("ping to " + host + ", seq = " + sequence_number + ", rtt = " + delay[i]  + " ms; ");
+				System.out.println("ping to " + pingRequest.getAddress().getHostAddress() + ", seq = " + (i+1) + ", rtt = " + delay[i]  + " ms ");
 			}
 			catch (SocketTimeoutException e) {
-				System.out.println("ping to " + host + ", seq = " + sequence_number + ", rtt = " + "timeout; ");
-				delay[i] = Long.valueOf(0);
+				System.out.println("ping to " + pingRequest.getAddress().getHostAddress() + ", seq = " + (i+1) + ", rtt = " + "time out ");
+				delay[i] = null;
 			}
-			Thread.sleep(2 * TIMEOUT);
+			Thread.sleep(TIMEOUT);
 		}
 		clientSocket.close();
 		roundTripTime(delay);
 	}
 
 	private static void roundTripTime(Long[] delay) {
-		int first;
-		for (first = 0; first < delay.length; first++) {
-			if (delay[first] == Long.valueOf(0))
-				first++;
-		}
-		long minimum = delay[0];
-		long maximum = delay[0]; 
-		long averageRTT = 0;
-		int size = delay.length;
-
+		ArrayList<Long> realDelay = new ArrayList<Long>();
 		for (int i = 0; i < delay.length; i++) {
-			long d = delay[i];
-			if (d == Long.valueOf(0)){
-				size--;
-			} else {
-				if (d < minimum) {
-					minimum = d;
-				}
-
-				if (d > maximum) {
-					maximum = d;
-				}
-				averageRTT += d;
-			}
+			if (delay[i] != null)
+				realDelay.add(delay[i]);
 		}
-		averageRTT /= size;
-		System.out.println("minimum: " + minimum + "ms; maximum: " + maximum + "ms; averageRTT: " + averageRTT + "ms;");
+		long maximum = realDelay.get(0);
+		long minimum = realDelay.get(0);
+		double averageRTT;
+		if (realDelay.size() == 0) {
+			averageRTT = Double.valueOf(null);
+		} else {
+			averageRTT = 0;
+		}
+		
+		for (int i = 0; i < realDelay.size(); i++) {
+			if (realDelay.get(i) < minimum) {
+				minimum = realDelay.get(i);
+			}
+			if (realDelay.get(i) > maximum) {
+				maximum = realDelay.get(i);
+			}
+			averageRTT += realDelay.get(i);
+		}
+		averageRTT /= realDelay.size();
+		System.out.printf("minimum: %d ms; maximum: %d ms; averageRTT: %.3f ms;\n", minimum, maximum, averageRTT);
 	}
-
-} // end of class UDPClient
+}
+// end of class UDPClient
