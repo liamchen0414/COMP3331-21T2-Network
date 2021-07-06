@@ -208,6 +208,15 @@ persistent HTTP:
 4. CDN, caching and replication as a service (discussed in DNS)
 
 ### Caching calculation (exam question)
+total delay = Internet delay + access delay + LAN delay
+
+assumptions:
+* avg object size: 100K bits
+* avg request rate from browsers to origin servers:15/sec
+* avg data rate to browsers: 1.50Mbps
+* RTT from access router to any origin server: 2 sec
+* access link rate: 1.54 Mbps
+
 hit rate: repeated contents
 for example, cache hit rate is 0.4
 access link utilization = 60% of requests use access link

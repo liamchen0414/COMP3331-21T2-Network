@@ -44,5 +44,20 @@ ACK Sequence Number = next expected byte = seqno + length(data)
 ## Example
 h is seq_0, ack = seqno + length(data) = 0 + 5 = 5, so the ACK sent back by Bob is 5. The seq sends by Bob is the first byte in segment which is 10. for the second message
 
+# What does TCP do?
+Most of our previous tricks, but a few differences
+* Checksum
+* Sequence numbers are byte offsets
+* Receiver sends cumulative acknowledgements (like GBN)
+* Receivers can buffer out-of-sequence packets (like SR)
+* Sender maintains a single retransmission timer (like GBN) and
+retransmits on timeout (how much?)
 
 
+## TCP round trip time, timeout time
+Q: how to set TCP timeout value?
+Q: how to estimate RTT?
+
+We take sample RTT and average several recent measurements.
+EstimatedRTT = (1-a) * EstimatedRTT + a * SampleRTT
+typical value a = 0.125
