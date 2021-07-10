@@ -24,24 +24,30 @@ DNS is a directionary that maps human-readable domain names to computer-readable
 http/tcp transport layer port: 80
 dns/udp transport layer port: 53
 
-1. why do we have more than one authoritative name server? This is for the load balance, if one name server is done, the website can't be resolved.
+# Application layer questions
+1. Why is SMTP not used for transferring e-mail messages from the recipient’s mail server to the recipient’s personal computer?
 
-2. the additional records contain the ip address to reach any of the authoritative name server.
+Because SMTP is a push protocol, the task of transferring email from the mail server to the client is a pull operation
 
+2. Why do you think DNS uses UDP, instead of TCP, for its query and response
+messages?
 
-Question 3. What can you make of the rest of the response (i.e. the details available in the Authority and Additional sections)?
+Because UDP doesn't require the establish of connection every time there is a query and response. Using TCP for DNS may end up involving several TCP connections to be established since several name servers may have to be contacted to translate a name into an IP address. This imposes a high overhead in delay that is acceptable for larger transfers but not acceptable for very short messages such as DNS queries and responses. In addition, UDP affords a smaller packet size and also imposes a smaller load on name servers due to its simplicity in comparison to TCP. 
 
-Question 4. What is the IP address of the local nameserver for your machine?
+3. Suppose you are sending an email from your Hotmail account to your friend, who reads his/her e-mail from his/her mail server using IMAP. Briefly describe how your email travels from your host to your friend’s host. Also, what are the application-layer protocols involved?
 
-Question 5. What are the DNS nameservers for the “eecs.berkeley.edu.” domain (note: the domain name is eecs.berkeley.edu and not www.eecs.berkeley.edu . This is an example of what is referred to as the apex/naked domain)? Find out their IP addresses? What type of DNS query is sent to obtain this information?
+First, my email is sent from the host to the Hotmail server using HTTP. Then Hotmail server sends the email to my friend's mail server using SMTP. Then my friend is going to transfer e-mail from his/her mail server to his/her host using IMAP.
 
-Question 6. What is the DNS name associated with the IP address 111.68.101.54? What type of DNS query is sent to obtain this information?
+4. How can iterated DNS queries improve the overall performance? 
+Iterated request can improve overall performance by offloading the processing of requests from root and TLD servers to local servers. In recursive queries, root servers can be tied up ensuring the completion of numerous requests, which can result in a substantial decrease in performance. Iterated requests move that burden to local servers, and distributed the load more evenly throughout the Internet. With less work at the root servers, they can perform much faster. Some requests can be resolved at local DNS server.
 
-Question 7. Run dig and query the CSE nameserver (129.94.242.33) for the mail servers for Yahoo! Mail (again the domain name is yahoo.com, not www.yahoo.com ). Did you get an authoritative answer? Why? (HINT: Just because a response contains information in the authoritative part of the DNS response message does not mean it came from an authoritative name server. You should examine the flags in the response to determine the answer)
+5. Consider the circular DHT example that we discussed in the lecture. Explain how peer 6 would join the DHT assuming that peer 15 is the designated contact peer for the DHT
 
-Question 8. Repeat the above (i.e. Question 7) but use one of the nameservers obtained in Question 5. What is the result?
-Question 9. Obtain the authoritative answer for the mail servers for Yahoo! Mail. What type of DNS query is sent to obtain this information?
+* Peer 6 will contact Peer 15 with a join request. 
+* Peer 15, whose successor is peer 1, knows that Peer 6 should not be its successor. Peer 15 will forward the join request from Peer 6 to Peer 1.
+* Peer 1, whose successor is peer 3, knows that Peer 6 should not be its successor. Peer 1 will forward the join request from Peer 6 to Peer 3. The actions of peers 3 and 4 are identical to those of peers 15 and 1.
+* The join request will finally arrive at peer 5. Peer 5 knows that its current successor is peer 8, therefore peer 6 should become its new successor. Peer 5 will let peer 6 knows that its successor is peer 8. At the same time, peer 5 updates its successor to be peer 6.
 
-Question 10. In this exercise, you simulate the iterative DNS query process to find the IP address of your machine (e.g. lyre00.cse.unsw.edu.au). If you are using VLAB Then find the IP address of one of the following: lyre00.cse.unsw.edu.au, lyre01.cse.unsw.edu.au, drum00.cse.unsw.edu.au or drum01.cse.unsw.edu.au. First, find the name server (query type NS) of the "." domain (root domain). Query this nameserver to find the authoritative name server for the "au." domain. Query this second server to find the authoritative nameserver for the "edu.au." domain. Now query this nameserver to find the authoritative nameserver for "unsw.edu.au". Next query the nameserver of unsw.edu.au to find the authoritative name server of cse.unsw.edu.au. Now query the nameserver of cse.unsw.edu.au to find the IP address of your host. How many DNS servers do you have to query to get the authoritative answer?
+6. Consider a new peer Alice that joins BitTorrent without possessing any chunks. Without any chunks, she cannot become a top-four uploader for any of the peers, since she has nothing to upload. How then will Alice get her first chunk? 
 
-Question 11. Can one physical machine have several names and/or IP addresses associated with it?
+“optimistic unchoke"
