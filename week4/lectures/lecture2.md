@@ -14,11 +14,11 @@ Assumption: underlying channel may flip bits in packet, checksum to detect bit e
 2. NACK: receiver explicitly tells sender that pkt had errors
 3. sender retransmits pkt on receipt of negative acknowledgement
 
-note: dotted line: errorneous transmission
+note: dotted line: erroneous transmission
 
 Issue with rdt2.0: we only assume pkts in forward direction is corrupted. But in reality the pkt coming back can be corrupted as well.
 
-### rdt2.1: errorneous protocol (errneous)
+### rdt2.1: erroneous protocol (erroneous)
 measure: seq # added to pkt + checksum like UDP(Receiver checks if data is corrupted/duplicated, sender checks if NACK, ACK is corrupted), seq # can also be used to check duplicates. 
 
 /*stop and wait protocol*/
@@ -33,11 +33,11 @@ Receiver:
 * receiver can not know if its last ACK/NAK received OK at sender
 
 
-### rdt2.2: a nak-free protocol (errneous)
+### rdt2.2: a nak-free protocol (erroneous)
 
 We don't need two types control packets, we don't need NAK. This is what TCP does. We use seq# of pkt to indicate NAK
 
-sender sends pkt0, receiver sends ack0. data1 is erroneous, receiver sends ack0 again, and sender knows pkt1 is not sent correctly. Note: be careful with the first packet data(0) being errnoeous, we need some special handling/exception for this.
+sender sends pkt0, receiver sends ack0. data1 is erroneous, receiver sends ack0 again, and sender knows pkt1 is not sent correctly. Note: be careful with the first packet data(0) being erroneous, we need some special handling/exception for this.
 
 ### rdt3.0: implementation of timer (packet loss)
 Check the graph example
