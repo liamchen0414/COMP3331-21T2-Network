@@ -101,4 +101,13 @@ Final TimeoutInterval = EstimatedRTT + 4*DevRTT
 * ack received
     1. if ack acknowledges previously unacked segments
 
-## receiver
+## TCP fast retransmit
+After receive 3 duplicate ACK, the sender retransmit.
+
+
+**TCP retransmission scenarios**
+1. lost ACK: ACK is lost, timeout, sender sends the packet again
+2. premature timeout
+3. cumulative ACK: back to back, didn't receive the first ACK but the second ACK, no need to retransmitt. **delayed ACK** wait up to 500ms for next segment, if no next segment, send ACK.don't worry it in exam
+4. cumulative ACK: back to back, first packet loss, ACK is not updated. Sender retransmitt, because the second packet is in the buffer out of order by the receiver, ACK is second seq + data received.
+
