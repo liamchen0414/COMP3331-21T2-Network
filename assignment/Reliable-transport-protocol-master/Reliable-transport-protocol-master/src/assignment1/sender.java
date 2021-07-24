@@ -131,29 +131,25 @@ public class sender extends Thread{
 	{
 		File file = new File(filename);
 		String line;
-	    if (file.isFile() && file.exists())
-	    {
-	    	//InputStreamReader isr = new InputStreamReader(new FileInputStream(file), "utf-8");
-	  	    BufferedReader br = new BufferedReader(new FileReader(file));
-	  	    while ((line=br.readLine()) != null) 
-  	        {
-	  	    	if(line.trim().equals(""))
-	  	    		whole_file+="\r\n";
-	  	    	else 
-	  	    		whole_file+=line+"\r\n";
-  	        }
-            br.close();   
-            //isr.close();
-            whole_file=whole_file.substring(0, whole_file.length()-2);
-            int add_newline=num_newline();
-            if(add_newline!=0)
-            {
-            	for(int i=0;i<add_newline;i++)
-            		whole_file+="\r\n";
-            }
-	    }
-	    else
-	    	System.out.println("No such file");
+		//InputStreamReader isr = new InputStreamReader(new FileInputStream(file), "utf-8");
+		BufferedReader br = new BufferedReader(new FileReader(file));
+		while ((line=br.readLine()) != null)
+		{
+			if(line.trim().equals(""))
+				whole_file+="\r\n";
+			else
+				whole_file+=line+"\r\n";
+		}
+		br.close();
+		//isr.close();
+		whole_file=whole_file.substring(0, whole_file.length()-2);
+		int add_newline=num_newline();
+		if(add_newline!=0)
+		{
+			for(int i=0;i<add_newline;i++)
+				whole_file+="\r\n";
+		}
+
 	    byte[] file_in_byte = whole_file.getBytes();
 	    all_data_byte=file_in_byte.length;
 	    int num=file_in_byte.length/MSS;
