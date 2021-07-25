@@ -25,6 +25,7 @@ def three_way_handshake(sender_socket, receiver_address):
 		PTP_segment = create_header(seq, ack, '0010')
 		sender_socket.sendto(PTP_segment.encode(), receiver_address)
 		write_sender_log(PTP_segment.split('|'), 'snd', time.time() - start_time, sender_log)
+		print("headshake established")
 
 def send_file():
 
@@ -200,8 +201,8 @@ def main():
 	
 
 	with open(sender_log, 'a') as f:
-	f.write('\nAmount of Data Transferred: ' + str(file_bytes))
-	f.write('\nNumber of Data Segments Sent: ' + str(sent_total))
-	f.write('\nNumber of Packets Dropped: ' + str(seg_drop))
-	f.write('\nNumber of Retransmitted Segments: ' + str(retrans_counter))
-	f.write('\nNumber of Duplicate Acknowledgements received: ' + str(duplicates))
+		f.write('\nAmount of Data Transferred: ' + str(file_bytes))
+		f.write('\nNumber of Data Segments Sent: ' + str(sent_total))
+		f.write('\nNumber of Packets Dropped: ' + str(seg_drop))
+		f.write('\nNumber of Retransmitted Segments: ' + str(retrans_counter))
+		f.write('\nNumber of Duplicate Acknowledgements received: ' + str(duplicates))
