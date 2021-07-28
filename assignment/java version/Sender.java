@@ -26,7 +26,6 @@ public class Sender extends Thread {
     
     // Constants
     // flag string "SAFD", "1000" as syn, "1100" as syn ack
-    static String flags = "0000";
     static final int PORT_MIN = 1024;
     static final int PORT_MAX = 65535;
     static final int PDROP_MIN = 0;
@@ -36,7 +35,8 @@ public class Sender extends Thread {
     static int ACK_INIT = 0;
 
     // Variables to store header
-
+    static byte[] sData;
+    static byte[] rData;
     // Variables to write log file
     static List<String[]> log_records = new ArrayList<String[]>();
     static int data_transferred;
@@ -46,7 +46,7 @@ public class Sender extends Thread {
     static int nSegments_retrans;
     static int duplicate_ack;
     static long start_time;
-
+    static long requestTime;
     public static void main(String[] args) throws Exception {
         // checking the number of cmd line argument
         if (args.length != 8) {
@@ -74,47 +74,80 @@ public class Sender extends Thread {
         File f = new File("Sender_log.txt");
         write_sender_log(f);
         connection_close(0, 0);
+        System.out.println("Connection closed");
+    }
+
+    public static String makeFlag(String flags) {
+        String flag;
+        if(flags.equals("0100"))
+            flag = "S";
+        else if(flags.equals("0010")){
+            flag = "A";
+        } else if(flags.equals("1000")){
+            flag = "F";
+        } else if(flags.equals("0001")){
+            flag = "D";
+        } else if(flags.equals("1010")){
+            flag = "FA";
+        } else if(flags.equals("0110")){
+            flag = "SA";
+        } else {
+            flag = "ERROR";
+        }
+        return flag;
+    }
+
+    public static String makeHeader(int seq, int ack, String flags, String payload){
+        String flag = makeFlag(flags);
+        String result = seq + " " + ack + " " + flag + " " + payload;
+        return result;
     }
 
     // 3-way connection setup(SYN,SYN+ACK,ACK), bypassing PL module
     public static void three_way_connection(InetAddress receiver_host_ip, int receiver_port) throws SocketException, IOException{
         // establish socket
+        String header, flags, flag;
+        int seq1, ack1;
         senderSocket = new DatagramSocket();
         start_time = System.currentTimeMillis();
-        int seq1, ack1;
+    
         seq1 = SENDER_ISN;
         ack1 = ACK_INIT;
-        // segment = "seq,ack,FSAD,payload"
-        flags = "0100";
-        String header = seq1 + "," + ack1 + "," + flags; // no payload
-        byte[] sData = header.getBytes();
+        flags = "0100"; // segment = "seq,ack,FSAD,payload"
+        header = makeHeader(seq1, ack1, flags, "");
+        System.out.println("debug" + header);
+        sData = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
+        System.out.println("Sending Handshake Request, Sender_Seq= "+ seq1);
         senderSocket.send(sPacket);
-        long requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq1, 0, ack1);
+        requestTime = System.currentTimeMillis() - start_time;
+        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, makeFlag(flags), seq1, 0, ack1);
         
         // sender receives connection granted, 2way
-	    byte[] rData = new byte[1024];
+	    rData = new byte[1024];
 	    DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
 	    senderSocket.receive(rPacket);
 	    requestTime = System.currentTimeMillis() - start_time;
-	    String[] response = new String(rPacket.getData()).trim().split(",");
-        // segment = "seq,ack,FSAD,payload"
+	    String[] response = new String(rPacket.getData()).trim().split(" ");
 	    int seq2 = Integer.parseInt(response[0]);
 	    int ack2 = Integer.parseInt(response[1]);
+        System.out.println("Received Handshake Response, Receiver_ACK= "+ ack2);
         flags = response[2];
-        write_log_record("rcv", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq2, 0, ack2);
+        flag = makeFlag(flags);
+        write_log_record("rcv", Double.parseDouble(Long.toString(requestTime))/1000, flag, seq2, 0, ack2);
+
         // sender sends final confirmation before sending data, 3way
         // syn3 = 0, seq3 = client_isn + 1 = 0, ack3 = server_isn + 1
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = seq3 + "," + ack3 + "," + flags;
+        header = makeHeader(seq3, ack3, flags, "");
         sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
+        System.out.println("Sending Handshake Acknowledgement, Sender_Seq= "+ seq3);
         senderSocket.send(sPacket);
         requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq3, 0, ack3);
+        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, makeFlag(flags), seq3, 0, ack3);
         System.out.println("Server is ready, connection established :");
         // seq and ack to be carried over to next phase
         sender_seq = seq3;
@@ -129,7 +162,7 @@ public class Sender extends Thread {
 		String getLine = reader.readLine();
 		String file = "";
 		while(getLine != null){
-			file += getLine + "\r\n"; // add new line to each line, TOCHECK carriage
+			file += getLine; // add new line to each line, TOCHECK carriage
 			getLine = reader.readLine();
 		}
 		reader.close();
@@ -144,22 +177,27 @@ public class Sender extends Thread {
 
     // data transmission (repeat until end of file)
     public static void sendFile() throws Exception {
+        String header, flags, flag;
         int window_start = 0;
         int window_end = 0;
         int counter = 0;
         nSegments = 0;
         nDropped = 0;
         nSegments_retrans = 0;
-        boolean flag = true;
 
         // a. Read file
         readFile();
         String log = "";
         System.out.println("linesToSend size = "+ linesToSend.size());
+        System.out.println("Sender_Seq = " + sender_seq + " Sender_ACK = " + sender_ack);
         for(int i = 0; i < linesToSend.size(); i++) {
-            byte[] sendData = linesToSend.get(i).getBytes();
-            DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, receiver_host_ip, receiver_port);
+            flags = "0001";
+            header = makeHeader(sender_seq + i * MSS, sender_ack, flags, linesToSend.get(i));
+            System.out.println("Sending data: " + linesToSend.get(i));
+            sData = header.getBytes();
+            DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
             senderSocket.send(sendPacket);
+            
             // long send_time = System.currentTimeMillis() - start_time;
         }
         // System.out.println("Sender_seq = " + sender_seq + " Receiver_SeqACK = " + sender_ack);
@@ -181,8 +219,8 @@ public class Sender extends Thread {
 
     // 4-way connection termination(FIN,ACK+FIN,ACK)
     public static void connection_close(int seq1, int ack1) throws SocketException, IOException{
-        flags = "1000";
-        String header = seq1 + "," + ack1 + "," + flags; // no payload
+        String flags = "1000";
+        String header = seq1 + " " + ack1 + " " + flags; // no payload
         byte[] sRequest = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sRequest, sRequest.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
@@ -194,7 +232,7 @@ public class Sender extends Thread {
 	    DatagramPacket rPacket = new DatagramPacket(rRequest, rRequest.length);
 	    senderSocket.receive(rPacket);
 	    requestTime = System.currentTimeMillis() - start_time;
-        String[] response = new String(rPacket.getData()).trim().split(",");
+        String[] response = new String(rPacket.getData()).trim().split(" ");
 	    int seq2 = Integer.parseInt(response[0]);
 	    int ack2 = Integer.parseInt(response[1]);
         flags = response[2];
@@ -204,7 +242,7 @@ public class Sender extends Thread {
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = seq3 + "," + ack3 + "," + flags;
+        header = seq3 + " " + ack3 + " " + flags;
         byte[] sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);

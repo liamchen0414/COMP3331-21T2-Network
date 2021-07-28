@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import time
-import socket
+from socket import *
 import sys
 import os
 from collections import deque
@@ -16,7 +16,9 @@ def three_way_handshake(sender_socket, receiver_address):
 	sender_socket.sendto(PTP_segment.encode(), receiver_address)
 	write_sender_log(PTP_segment.split('|'), 'snd', time.time() - start_time, sender_log)
 	# Receive SYNACK response from receiver.
+	print ("test")
 	rSegment, receiver_address = sender_socket.recvfrom(2048)
+	print ("test")
 	seq, ack, F, S, A, D, rSegment = read_header(rSegment)
 	write_sender_log(rSegment, 'rcv', time.time() - start_time, sender_log)
 	# Send final ACK segment if SYNACK was received.
@@ -167,42 +169,44 @@ def write_sender_log(header, status, time, sender_log):
 	with open(sender_log, 'a') as f:
 		f.write(line)
 
-def main():
-	global start_time, sender_log
-	# define argument variables
-	if len(sys.argv) < 9:
-		sys.exit()
 
-	receiver_host_ip = sys.argv[1]
-	receiver_port = int(sys.argv[2])
-	file = sys.argv[3]
-	MWS = int(sys.argv[4])
-	MSS = int(sys.argv[5])
-	timeout = int(sys.argv[6])/1000
-	pdrop = float(sys.argv[7]) # variables used exclusively for PL_module
-	sender_seed = (int(sys.argv[8])) # variables used exclusively for PL_module
+# define argument variables
+if len(sys.argv) < 9:
+	sys.exit()
 
-	# Initiate a socket and define receiver's address
-	sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-	receiver_address = (receiver_host_ip, receiver_port)
+receiver_host_ip = sys.argv[1]
+receiver_port = int(sys.argv[2])
+file = sys.argv[3]
+MWS = int(sys.argv[4])
+MSS = int(sys.argv[5])
+timeout = int(sys.argv[6])/1000
+pdrop = float(sys.argv[7]) # variables used exclusively for PL_module
+sender_seed = (int(sys.argv[8])) # variables used exclusively for PL_module
 
-	# Connection setup
-	sender_log = 'Sender_log.txt'
-	start_time = time.time()
-	three_way_handshake(sender_socket, receiver_address)
+# Initiate a socket and define receiver's address
+sender_socket = socket(AF_INET, SOCK_DGRAM)
+receiver_address = (receiver_host_ip, receiver_port)
 
-	# data transmission (repeat until end of file)
-	# read file
-	with open(sender_log, 'w') as f:
-		f.write('')
-	file_contents, file_bytes = read_file(file)
-	file_contents = divide_file(file_contents, MSS)
-	# create PTP segment
-	
+# Connection setup
+sender_log = 'Sender_log.txt'
+start_time = time.time()
+three_way_handshake(sender_socket, receiver_address)
 
-	with open(sender_log, 'a') as f:
-		f.write('\nAmount of Data Transferred: ' + str(file_bytes))
-		f.write('\nNumber of Data Segments Sent: ' + str(sent_total))
-		f.write('\nNumber of Packets Dropped: ' + str(seg_drop))
-		f.write('\nNumber of Retransmitted Segments: ' + str(retrans_counter))
-		f.write('\nNumber of Duplicate Acknowledgements received: ' + str(duplicates))
+# data transmission (repeat until end of file)
+# read file
+with open(sender_log, 'w') as f:
+	f.write('')
+file_contents, file_bytes = read_file(file)
+file_contents = divide_file(file_contents, MSS)
+# create PTP segment
+
+
+with open(sender_log, 'a') as f:
+	f.write('\nAmount of Data Transferred: ' + str(file_bytes))
+	f.write('\nNumber of Data Segments Sent: ' + str(sent_total))
+	f.write('\nNumber of Packets Dropped: ' + str(seg_drop))
+	f.write('\nNumber of Retransmitted Segments: ' + str(retrans_counter))
+	f.write('\nNumber of Duplicate Acknowledgements received: ' + str(duplicates))
+
+# if __name__ == "__main__":
+#     main()
