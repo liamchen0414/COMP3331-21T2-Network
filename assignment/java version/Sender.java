@@ -99,7 +99,7 @@ public class Sender extends Thread {
 
     public static String makeHeader(int seq, int ack, String flags, String payload){
         String flag = makeFlag(flags);
-        String result = seq + " " + ack + " " + flag + " " + payload;
+        String result = seq + "|" + ack + "|" + flag + "|" + payload;
         return result;
     }
 
@@ -128,7 +128,7 @@ public class Sender extends Thread {
 	    DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
 	    senderSocket.receive(rPacket);
 	    requestTime = System.currentTimeMillis() - start_time;
-	    String[] response = new String(rPacket.getData()).trim().split(" ");
+	    String[] response = new String(rPacket.getData()).trim().split("\\|");
 	    int seq2 = Integer.parseInt(response[0]);
 	    int ack2 = Integer.parseInt(response[1]);
         System.out.println("Received Handshake Response, Receiver_ACK= "+ ack2);
@@ -220,7 +220,7 @@ public class Sender extends Thread {
     // 4-way connection termination(FIN,ACK+FIN,ACK)
     public static void connection_close(int seq1, int ack1) throws SocketException, IOException{
         String flags = "1000";
-        String header = seq1 + " " + ack1 + " " + flags; // no payload
+        String header = seq1 + "|" + ack1 + "|" + flags; // no payload
         byte[] sRequest = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sRequest, sRequest.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
@@ -232,7 +232,7 @@ public class Sender extends Thread {
 	    DatagramPacket rPacket = new DatagramPacket(rRequest, rRequest.length);
 	    senderSocket.receive(rPacket);
 	    requestTime = System.currentTimeMillis() - start_time;
-        String[] response = new String(rPacket.getData()).trim().split(" ");
+        String[] response = new String(rPacket.getData()).trim().split("\\|");
 	    int seq2 = Integer.parseInt(response[0]);
 	    int ack2 = Integer.parseInt(response[1]);
         flags = response[2];
@@ -242,7 +242,7 @@ public class Sender extends Thread {
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = seq3 + " " + ack3 + " " + flags;
+        header = seq3 + "|" + ack3 + "|" + flags;
         byte[] sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
