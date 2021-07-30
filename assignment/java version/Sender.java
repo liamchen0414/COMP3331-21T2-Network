@@ -30,10 +30,10 @@ public class Sender extends Thread {
     static final int PORT_MAX = 65535;
     static final int PDROP_MIN = 0;
     static final int PDROP_MAX = 1;
-    static int SENDER_ISN = 0; // client_isn
-    static int RECEIVER_ISN = 0; // server_isn
     static int ACK_INIT = 0;
-
+    static int seq_receiver;
+    static int ack_receiver;
+    static Random random;
     // Variables to store header
     static byte[] sData;
     static byte[] rData;
@@ -55,7 +55,6 @@ public class Sender extends Thread {
             return;
         }
 
-        // write common line arguments into variables with simple checks
         receiver_host_ip = InetAddress.getByName(args[0]);
         receiver_port = Integer.parseInt(args[1]); // to match receiver port
         fileName = args[2]; // no error checking
@@ -68,12 +67,14 @@ public class Sender extends Thread {
             return;
         }
         seed = Integer.parseInt(args[7]);
+        random = new Random(seed);
+
+        // starting...
         three_way_connection(receiver_host_ip, receiver_port);
         sendFile();
-        create_sender_log();
-        File f = new File("Sender_log.txt");
+        File f = create_sender_log();
         write_sender_log(f);
-        connection_close(0, 0);
+        connection_close(sender_seq, sender_ack);
         System.out.println("Connection closed");
     }
 
@@ -97,33 +98,33 @@ public class Sender extends Thread {
         return flag;
     }
 
-    public static String makeHeader(int seq, int ack, String flags, String payload){
+    public static String makeHeader(int seq, int ack, String flags, int receiveWindow, String payload){
         String flag = makeFlag(flags);
-        String result = seq + "|" + ack + "|" + flag + "|" + payload;
+        String result = seq + "|" + ack + "|" + flag + "|" + receiveWindow + "|" + payload + "|";
         return result;
     }
 
     // 3-way connection setup(SYN,SYN+ACK,ACK), bypassing PL module
     public static void three_way_connection(InetAddress receiver_host_ip, int receiver_port) throws SocketException, IOException{
         // establish socket
-        String header, flags, flag;
-        int seq1, ack1;
+        String header, flags;
+        int sender_seq_isn, sender_ack_isn;
+        sender_seq_isn = 0;
+        sender_ack_isn = 0;
+        // stage 1
         senderSocket = new DatagramSocket();
+        senderSocket.setSoTimeout(timeout);
         start_time = System.currentTimeMillis();
-    
-        seq1 = SENDER_ISN;
-        ack1 = ACK_INIT;
-        flags = "0100"; // segment = "seq,ack,FSAD,payload"
-        header = makeHeader(seq1, ack1, flags, "");
-        System.out.println("debug" + header);
+         // PTP segment = "seq,ack,FSAD,MWS,payload"
+        flags = "0100";
+        header = makeHeader(sender_seq_isn, sender_ack_isn, flags, MWS, "");
         sData = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
-        System.out.println("Sending Handshake Request, Sender_Seq= "+ seq1);
         senderSocket.send(sPacket);
         requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, makeFlag(flags), seq1, 0, ack1);
+        write_log_record("snd", requestTime, makeFlag(flags), sender_seq_isn, 0, sender_ack_isn);
         
-        // sender receives connection granted, 2way
+       // stage 2
 	    rData = new byte[1024];
 	    DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
 	    senderSocket.receive(rPacket);
@@ -133,21 +134,19 @@ public class Sender extends Thread {
 	    int ack2 = Integer.parseInt(response[1]);
         System.out.println("Received Handshake Response, Receiver_ACK= "+ ack2);
         flags = response[2];
-        flag = makeFlag(flags);
-        write_log_record("rcv", Double.parseDouble(Long.toString(requestTime))/1000, flag, seq2, 0, ack2);
+        write_log_record("rcv", requestTime, flags, seq2, 0, ack2);
 
-        // sender sends final confirmation before sending data, 3way
-        // syn3 = 0, seq3 = client_isn + 1 = 0, ack3 = server_isn + 1
+       // stage 3
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = makeHeader(seq3, ack3, flags, "");
+        header = makeHeader(seq3, ack3, flags, MWS, "");
         sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         System.out.println("Sending Handshake Acknowledgement, Sender_Seq= "+ seq3);
         senderSocket.send(sPacket);
         requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, makeFlag(flags), seq3, 0, ack3);
+        write_log_record("snd", requestTime, makeFlag(flags), seq3, 0, ack3);
         System.out.println("Server is ready, connection established :");
         // seq and ack to be carried over to next phase
         sender_seq = seq3;
@@ -162,7 +161,7 @@ public class Sender extends Thread {
 		String getLine = reader.readLine();
 		String file = "";
 		while(getLine != null){
-			file += getLine; // add new line to each line, TOCHECK carriage
+			file += getLine + "\n"; // add new line to each line, TOCHECK carriage
 			getLine = reader.readLine();
 		}
 		reader.close();
@@ -177,55 +176,99 @@ public class Sender extends Thread {
 
     // data transmission (repeat until end of file)
     public static void sendFile() throws Exception {
-        String header, flags, flag;
-        int window_start = 0;
-        int window_end = 0;
-        int counter = 0;
+        /* 
+        loop(forever) {
+            switch(event)
+                event: data received from application above
+                    create PTP segment with sequence number NextSeqNum;
+                    if (timer currently not cunning)
+                        start timer;
+                    pass segment;
+                    break;
+
+                event: timer timeout
+                    retransmit not-yet-ack segment with smallest sequence number;
+                    start timer;
+                    break;
+
+                event: ACK received with ACK field value of ack_receiver
+                    if(ack_receiver > send base) {
+                        sendbase = ack_receiver;
+                    }
+                    
+                    if (there are currently any not yet ack segments)
+                        start timer;
+                    else {
+                        // a duplicate ack for already acked segment
+                        increment number of duplicate acks
+                            received for ack_receiver
+                        if (number of duplicate acks == 3) 
+                        // TCP fast retransmission
+                            resend segment with sequence number ack_receiver
+                        
+                    }
+                    break;
+        } // end of loop forever
+        */
+        String header, flags;
         nSegments = 0;
         nDropped = 0;
         nSegments_retrans = 0;
-
         // a. Read file
         readFile();
-        String log = "";
-        System.out.println("linesToSend size = "+ linesToSend.size());
-        System.out.println("Sender_Seq = " + sender_seq + " Sender_ACK = " + sender_ack);
+        int triple_counter = 0;
         for(int i = 0; i < linesToSend.size(); i++) {
+            // if(rdrop < pdrop) don't send the packet
             flags = "0001";
-            header = makeHeader(sender_seq + i * MSS, sender_ack, flags, linesToSend.get(i));
-            System.out.println("Sending data: " + linesToSend.get(i));
+            header = makeHeader(sender_seq, sender_ack, flags, MWS, linesToSend.get(i));
             sData = header.getBytes();
-            DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
-            senderSocket.send(sendPacket);
-            
-            // long send_time = System.currentTimeMillis() - start_time;
+            DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port); 
+            if(random.nextFloat() > pdrop) {
+                senderSocket.send(sendPacket);
+                write_log_record("snd", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
+            } else {
+                write_log_record("drop", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);  
+                nDropped++;
+                i++;
+                
+                System.out.println("dropped: " + nDropped);
+                continue;
+            }
+            // triple duplicates
+            rData = new byte[1024];
+            DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
+            senderSocket.receive(rPacket);
+            String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
+            seq_receiver = Integer.parseInt(response[0]);
+            ack_receiver = Integer.parseInt(response[1]);
+            write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
+            if (ack_receiver < sender_seq) {
+                sender_seq += linesToSend.get(i).length();
+                triple_counter++;
+            } else {
+                sender_seq = ack_receiver;
+            }
+            if (triple_counter == 3) {
+                System.out.println("debug:     ");
+                sender_seq = ack_receiver;
+                triple_counter = 0;
+            }
+            sender_ack = seq_receiver;
         }
-        // System.out.println("Sender_seq = " + sender_seq + " Receiver_SeqACK = " + sender_ack);
-
+        
     }
 
-
-
-
-    // d. Send PTP segment to PL module
-    // generating random number between 0 and 1 using seed
-    Random random = new Random(seed);
-    float rdrop = random.nextFloat();
-
-    // if(rdrop < pdrop) don't send the packet
-
-    // define PL module: simulation of packet loss
 
 
     // 4-way connection termination(FIN,ACK+FIN,ACK)
     public static void connection_close(int seq1, int ack1) throws SocketException, IOException{
         String flags = "1000";
-        String header = seq1 + "|" + ack1 + "|" + flags; // no payload
+        String header = makeHeader(seq1, ack1, flags, MWS, ""); // no payload
         byte[] sRequest = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sRequest, sRequest.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
         long requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq1, 0, ack1);
+        write_log_record("snd", requestTime, makeFlag(flags), seq1, 0, ack1);
 
         // receiver gets end request and sends ack + fin
 	    byte[] rRequest = new byte[1024];
@@ -236,26 +279,26 @@ public class Sender extends Thread {
 	    int seq2 = Integer.parseInt(response[0]);
 	    int ack2 = Integer.parseInt(response[1]);
         flags = response[2];
-        write_log_record("rcv", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq2, 0, ack2);
+        write_log_record("rcv", requestTime, flags, seq2, 0, ack2);
 
         // connection fully closed
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = seq3 + "|" + ack3 + "|" + flags;
+        header = makeHeader(seq3, ack3, flags, MWS, "");
         byte[] sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
         requestTime = System.currentTimeMillis() - start_time;
-        write_log_record("snd", Double.parseDouble(Long.toString(requestTime))/1000, flags, seq3, 0, ack3);
+        write_log_record("snd", requestTime, makeFlag(flags), seq3, 0, ack3);
         System.out.println("Connection is now Closed!");
     }
 
     // store each row in the log record array
-    public static void write_log_record(String status, double time, String type_of_packet, int seq, int length, int ack){
+    public static void write_log_record(String status, long time, String type_of_packet, int seq, int length, int ack){
         String[] record = new String[6];
         record[0] = status;
-        record[1] = Double.toString(time);
+        record[1] = Long.toString(time);
         record[2] = type_of_packet;
         record[3] = Integer.toString(seq);
         record[4] = Integer.toString(length);
@@ -266,23 +309,22 @@ public class Sender extends Thread {
     }
 
     // create sender log
-    public static void create_sender_log() throws Exception {
+    public static File create_sender_log() throws Exception {
         File f = new File("Sender_log.txt");
         try {
 			if (f.exists())
                 f.delete();
             f.createNewFile();
-            write_sender_log(f);
 		}catch(Exception e){  
 			e.printStackTrace();  
 		}
+        return f;
     }
 
     // write records to sender_log.txt
     public static void write_sender_log(File f) throws FileNotFoundException, IOException{
         FileOutputStream oStream = new FileOutputStream(f);        
         String row = "";
-
         for(int i = 0; i < log_records.size(); i++) {
             if(log_records.get(i)[0].equals("snd"))
                 nSegments += 1;
