@@ -9,6 +9,7 @@ public class Sender extends Thread {
     static ArrayList<String> linesToSend;
     static List<SocketAddress> clients=new ArrayList<SocketAddress>();
     static DatagramSocket senderSocket;
+    static int UPDATE_INTERVAL = 1000;//milliseconds
     static ReentrantLock syncLock = new ReentrantLock();
     static int sender_seq;
     static int sender_ack;
@@ -70,7 +71,7 @@ public class Sender extends Thread {
 
         // starting...
         three_way_connection(receiver_host_ip, receiver_port);
-        send();
+        sendFile();
         File f = create_sender_log();
         write_sender_log(f);
         connection_close(sender_seq, sender_ack);
@@ -154,7 +155,6 @@ public class Sender extends Thread {
     // aux function to process file
 	public static void readFile() throws IOException,FileNotFoundException{
 		linesToSend = new ArrayList<String>();
-        data_transferred = (int)(new File(fileName)).length();
         FileReader f = new FileReader(fileName);
 		BufferedReader reader = new BufferedReader(f);
 		String getLine = reader.readLine();
@@ -175,76 +175,116 @@ public class Sender extends Thread {
 
     // data transmission (repeat until end of file)
     public static void sendFile() throws Exception {
-
-    }
-
-
-    public static void send() throws Exception {
         nSegments = 0;
         nDropped = 0;
         nSegments_retrans = 0;
         readFile();
-        int LastByteSent = sender_seq;
-        int LastByteAcked = sender_seq;
+        // sender_seq, sender_ack
+        max = MWS/MSS; // when value is one, it is stop-and-wait, otherwise pipelining
+        int line_index = 0;
         int triple_counter = 0;
         String header, flags;
-        for(int i = 0; i < linesToSend.size(); i++) {
-            while(LastByteSent - LastByteAcked <= MWS && LastByteSent < data_transferred) {
-                flags = "0001";
-                header = makeHeader(sender_seq, sender_ack, flags, MWS, linesToSend.get(i));
-                sData = header.getBytes();
-                DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
-                System.out.println("debug: " + LastByteSent + "|" + linesToSend.get(i).length() + "|" + data_transferred);
-                LastByteSent = (LastByteSent + linesToSend.get(i).length() > data_transferred) ? LastByteSent : LastByteSent + linesToSend.get(i).length();
-                // sending
-                if(random.nextFloat() > pdrop) {
-                    senderSocket.send(sendPacket);
-                    write_log_record("snd", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
-                } else {
-                    sender_seq = LastByteSent;
-                    write_log_record("drop", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);  
-                    nDropped++;
-                    i++;
-                    continue;
+        /*
+        while (true) {
+            if (data received from application above) {
+                create PTP segment with sequence number NextSeqNum;
+                if (timer currently not cunning)
+                    start timer;
+                pass segment;
+                break;
+            } else if (timer timeout) {
+                retransmit not-yet-ack segment with smallest sequence number;
+                start timer;
+                break;
+            } else if (ACK received with ACK field value of ack_receiver) {
+                if(ack_receiver > send base)
+                    sendbase = ack_receiver;
+                if (there are currently any not yet ack segments)
+                    start timer;
+                else {
+                    // a duplicate ack for already acked segment
+                    increment number of duplicate acks
+                        received for ack_receiver
+                    if (triple_counter == 3) 
+                        resend(seq_receiver, ack_receiver)
                 }
-
-                try {
-                    rData = new byte[1024];
-                    DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
-                    senderSocket.receive(rPacket);
-                    String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
-                    seq_receiver = Integer.parseInt(response[0]);
-                    ack_receiver = Integer.parseInt(response[1]);
-                    write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
-                    if (ack_receiver < LastByteSent) {
-                        // two scenario, either it is an out of order packet
-                        // or it is a retransmission
-                        if (LastByteAcked + linesToSend.get(i).length() == ack_receiver) {
-                            LastByteAcked = ack_receiver;
-                            sender_seq = ack_receiver;
-                            System.out.println("debug " + sender_seq);
-                        } else {
-                            sender_seq = LastByteSent;
-                            triple_counter++;
-                            if (triple_counter == 3) {
-                                sender_seq = LastByteAcked;
-                                triple_counter = 0;
-                            }
-                        }
-                    } else {
-                        // expected ack received
-                        LastByteAcked = ack_receiver;
-                        sender_seq = ack_receiver;
-                        break;
-                    }
-                    sender_ack = seq_receiver;
-                } catch (Exception e) { // time out even
-                    sender_seq = LastByteSent;
-                    sender_ack = seq_receiver;
-                }
-            } // end of while
+                break;
+            }
         }
+        */
+
+    public static void send_a_line(int i) {
+        
     }
+        for(int i = 0; i < linesToSend.size(); i++) {
+            // if(rdrop < pdrop) don't send the packet
+            flags = "0001";
+            header = makeHeader(sender_seq, sender_ack, flags, MWS, linesToSend.get(i));
+            sData = header.getBytes();
+            DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port); 
+            if(random.nextFloat() > pdrop) {
+                senderSocket.send(sendPacket);
+                write_log_record("snd", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
+            } else {
+                write_log_record("drop", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);  
+                nDropped++;
+                i++;
+                continue;
+            }
+            // triple duplicates
+            rData = new byte[1024];
+            DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
+            senderSocket.receive(rPacket);
+            String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
+            seq_receiver = Integer.parseInt(response[0]);
+            ack_receiver = Integer.parseInt(response[1]);
+            write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
+            if (ack_receiver < sender_seq) {
+                sender_seq += linesToSend.get(i).length();
+                triple_counter++;
+            } else {
+                sender_seq = ack_receiver;
+            }
+            if (triple_counter == 3) {
+                System.out.println("debug:     ");
+                sender_seq = ack_receiver;
+                triple_counter = 0;
+            }
+            sender_ack = seq_receiver;
+        }
+
+    }
+
+
+    // We will send from this thread
+    public static void send() throws Exception{
+        while(true) {
+            //get lock
+            syncLock.lock();
+            for (int j=0; j < clients.size();j++){
+                long millis = System.currentTimeMillis();
+                Date date_time = new Date(millis);
+                String message= "Current time is " + date_time;
+                sendData = message.getBytes();
+                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, clients.get(j));
+                try{
+                serverSocket.send(sendPacket);
+                } catch (IOException e){ }
+                String clientInfo =clients.get(j).toString();
+                //Not printing the leading /
+                System.out.println("Sending time to " + clientInfo.substring(1) + " at time " + date_time);
+            }
+            //release lock
+            syncLock.unlock();
+            //sleep for UPDATE_INTERVAL
+            try{
+                Thread.sleep(UPDATE_INTERVAL);//in milliseconds
+            } catch (InterruptedException e){
+                System.out.println(e);
+            }
+        // System.out.println(Thread.currentThread().getName());
+        }// while ends
+    } //run ends
 
 
     // 4-way connection termination(FIN,ACK+FIN,ACK)

@@ -115,7 +115,7 @@ public class Receiver {
 			// Receving a packet, if it is data packet
 			if (flags.equals("D")){
 				if (seq_sender == ack_receiver) {
-					// b. Nothing is wrong, send ACK segment
+					// b. two scenarios, 1 is normal packet, 2 is retransmission
 					receiveFile(f, payload);
 					write_to_log("rcv", requestTime, "D", seq_sender, payload.length(), ack_sender);
 
@@ -135,6 +135,8 @@ public class Receiver {
 					message = makeHeader(seq_receiver, ack_receiver, "0010", receiveWindow, payload);
 					send_message(message);
 					write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
+				} else {
+					System.out.println("Debug: " + seq_sender + ack_receiver);
 				}
 			} else if (flags.equals("F") && seq_sender == ack_receiver) {
 				// if the receiver gets FINbit and seq_sender is same as current ack,
