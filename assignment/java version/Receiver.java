@@ -11,6 +11,7 @@ public class Receiver {
 	static int ack_receiver;
 	static int seq_sender;
 	static int ack_sender;
+	static int received;
 	static List<String[]> log_records = new ArrayList<String[]>();
 	static InetAddress senderIPAddress;
 	static int senderPort;
@@ -43,7 +44,6 @@ public class Receiver {
         String[] line = null;
 		String payload = null;
 		String message = null;
-		int receiveWindow = 0;
 		String flags = null; // PTP flag design F|S|A|D
 		
 		// 1. Connection setup between sender and receiver, listening state
@@ -62,7 +62,6 @@ public class Receiver {
 			// stage 1, SYN received
 			if (flags.equals("S"))
 			{
-				receiveWindow = Integer.parseInt(request[3]);
 				write_to_log("rcv", requestTime, "S", seq_sender, request[4].length(), ack_sender);
 				// need IP and Port to send replies later
 				senderIPAddress = rPacket.getAddress();
@@ -73,7 +72,7 @@ public class Receiver {
 				ack_receiver = (seq_sender + 1);
 				payload = "";
 				flags = "0110";
-				message = makeHeader(seq_receiver, ack_receiver, flags, receiveWindow, payload);
+				message = makeHeader(seq_receiver, ack_receiver, flags, payload);
 				sData = message.getBytes();
 				DatagramPacket sPacket = new DatagramPacket(sData, sData.length, senderIPAddress, senderPort);
 				receiverSocket.send(sPacket);
@@ -111,28 +110,35 @@ public class Receiver {
 			seq_sender = Integer.parseInt(line[0]);
 			ack_sender = Integer.parseInt(line[1]);
 			flags = line[2];
-			payload = line[4];
+			payload = line[3];
 			// Receving a packet, if it is data packet
 			if (flags.equals("D")){
 				if (seq_sender == ack_receiver) {
 					// b. two scenarios, 1 is normal packet, 2 is retransmission
-					receiveFile(f, payload);
-					write_to_log("rcv", requestTime, "D", seq_sender, payload.length(), ack_sender);
+					
+					if (seq_sender < received) { // if it is out of order packet
 
-					seq_receiver = ack_sender;
-					ack_receiver = seq_sender + payload.length();
-					payload = "";
-					// send ack back to sender
-					message = makeHeader(seq_receiver, ack_receiver, "A", receiveWindow, payload);
-					send_message(message);
-					requestTime = System.currentTimeMillis() - start_time;
-					write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
+					} else {
+						writeFile(f, payload);
+						write_to_log("rcv", requestTime, "D", seq_sender, payload.length(), ack_sender);
+	
+						seq_receiver = ack_sender;
+						ack_receiver = seq_sender + payload.length();
+						payload = "";
+						// send ack back to sender
+						message = makeHeader(seq_receiver, ack_receiver, "A", payload);
+						send_message(message);
+						requestTime = System.currentTimeMillis() - start_time;
+						write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
+					}
+
 				} else if (seq_sender > ack_receiver) {
-					System.out.println("Dectecting out of order packet.....");
+					System.out.println("Dectecting out of order packet....." + seq_sender);
 					// 1. put the out of order packet in buffer
 					buffer.put(seq_sender, payload);
+					received = seq_sender;
 					// 2. send the corresponding ack
-					message = makeHeader(seq_receiver, ack_receiver, "0010", receiveWindow, payload);
+					message = makeHeader(seq_receiver, ack_receiver, "0010", payload);
 					send_message(message);
 					write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
 				} else {
@@ -145,7 +151,7 @@ public class Receiver {
 				ack_receiver = seq_sender + 1;
 				// sending FINACK "1010" = FA
 				flags = "1010";
-				message = makeHeader(seq_receiver, ack_receiver, flags, receiveWindow, payload);
+				message = makeHeader(seq_receiver, ack_receiver, flags, payload);
 				send_message(message);
 				requestTime = System.currentTimeMillis() - start_time;
 				write_to_log("snd", requestTime, "FA", seq_receiver, 0, ack_receiver);
@@ -202,9 +208,9 @@ public class Receiver {
         return flag;
     }
 
-    public static String makeHeader(int seq, int ack, String flags, int receiveWindow, String payload){
+    public static String makeHeader(int seq, int ack, String flags, String payload){
         String flag = makeFlag(flags);
-        String result = seq + "|" + ack + "|" + flag + "|" + receiveWindow + "|" + payload;
+        String result = seq + "|" + ack + "|" + flag + "|" + payload + "|";
         return result;
     }
 
@@ -220,7 +226,7 @@ public class Receiver {
 		return f;
     }
 
-    public static void receiveFile(File f, String payload) throws FileNotFoundException, IOException{
+    public static void writeFile(File f, String payload) throws FileNotFoundException, IOException{
 		try{
             FileWriter fw = new FileWriter(f, true);
 			BufferedWriter bw = new BufferedWriter(fw);

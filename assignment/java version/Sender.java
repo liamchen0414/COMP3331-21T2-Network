@@ -97,9 +97,9 @@ public class Sender extends Thread {
         return flag;
     }
 
-    public static String makeHeader(int seq, int ack, String flags, int receiveWindow, String payload){
+    public static String makeHeader(int seq, int ack, String flags, String payload){
         String flag = makeFlag(flags);
-        String result = seq + "|" + ack + "|" + flag + "|" + receiveWindow + "|" + payload + "|";
+        String result = seq + "|" + ack + "|" + flag + "|" + payload + "|";
         return result;
     }
 
@@ -115,7 +115,7 @@ public class Sender extends Thread {
         start_time = System.currentTimeMillis();
          // PTP segment = "seq,ack,FSAD,MWS,payload"
         flags = "0100";
-        header = makeHeader(sender_seq_isn, sender_ack_isn, flags, MWS, "");
+        header = makeHeader(sender_seq_isn, sender_ack_isn, flags, "");
         sData = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
@@ -138,7 +138,7 @@ public class Sender extends Thread {
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = makeHeader(seq3, ack3, flags, MWS, "");
+        header = makeHeader(seq3, ack3, flags, "");
         sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         System.out.println("Sending Handshake Acknowledgement, Sender_Seq= "+ seq3);
@@ -191,13 +191,13 @@ public class Sender extends Thread {
         for(int i = 0; i < linesToSend.size(); i++) {
             while(LastByteSent - LastByteAcked <= MWS && LastByteSent < data_transferred) {
                 flags = "0001";
-                header = makeHeader(sender_seq, sender_ack, flags, MWS, linesToSend.get(i));
+                header = makeHeader(sender_seq, sender_ack, flags, linesToSend.get(i));
                 sData = header.getBytes();
                 DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
-                System.out.println("debug: " + LastByteSent + "|" + linesToSend.get(i).length() + "|" + data_transferred);
-                LastByteSent = (LastByteSent + linesToSend.get(i).length() > data_transferred) ? LastByteSent : LastByteSent + linesToSend.get(i).length();
+                LastByteSent = (LastByteSent + linesToSend.get(i).length() > data_transferred) ? LastByteSent + linesToSend.get(i+1).length(): LastByteSent + MSS;
                 // sending
                 if(random.nextFloat() > pdrop) {
+                    System.out.println("This is to check: " + "LastByteAcked" + LastByteAcked + "sender_seq" + sender_seq);
                     senderSocket.send(sendPacket);
                     write_log_record("snd", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
                 } else {
@@ -215,15 +215,15 @@ public class Sender extends Thread {
                     String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
                     seq_receiver = Integer.parseInt(response[0]);
                     ack_receiver = Integer.parseInt(response[1]);
+                    System.out.println("Final: " + " LastByteAcked " + LastByteAcked + " sender_seq " + sender_seq);
                     write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
                     if (ack_receiver < LastByteSent) {
                         // two scenario, either it is an out of order packet
-                        // or it is a retransmission
-                        if (LastByteAcked + linesToSend.get(i).length() == ack_receiver) {
+                        // or it is a retransmission ack
+                        if (LastByteAcked + linesToSend.get(i).length() == ack_receiver) { // retrans
                             LastByteAcked = ack_receiver;
                             sender_seq = ack_receiver;
-                            System.out.println("debug " + sender_seq);
-                        } else {
+                        } else { // out of order
                             sender_seq = LastByteSent;
                             triple_counter++;
                             if (triple_counter == 3) {
@@ -250,7 +250,7 @@ public class Sender extends Thread {
     // 4-way connection termination(FIN,ACK+FIN,ACK)
     public static void connection_close(int seq1, int ack1) throws SocketException, IOException{
         String flags = "1000";
-        String header = makeHeader(seq1, ack1, flags, MWS, ""); // no payload
+        String header = makeHeader(seq1, ack1, flags, ""); // no payload
         byte[] sRequest = header.getBytes();
         DatagramPacket sPacket = new DatagramPacket(sRequest, sRequest.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);
@@ -272,7 +272,7 @@ public class Sender extends Thread {
         int seq3 = ack2;
         int ack3 = seq2 + 1;
         flags = "0010";
-        header = makeHeader(seq3, ack3, flags, MWS, "");
+        header = makeHeader(seq3, ack3, flags, "");
         byte[] sData = header.getBytes();
         sPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
         senderSocket.send(sPacket);

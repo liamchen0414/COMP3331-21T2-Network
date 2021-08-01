@@ -1,4 +1,0 @@
-rm output.txt
-rm Sender_log.txt
-rm Receiver_log.txt
-
