@@ -31,7 +31,7 @@ public class sender extends Thread{
 	static int num_drop=0;
 	static double pdrop;
 	static boolean all_confirm=true;
-	public volatile boolean stop_thread=false;
+	public volatile boolean stop=false;
 	static int[] hand3=new int[2];
 	static String filename;
 	
@@ -289,7 +289,7 @@ public class sender extends Thread{
 	public void run()
 	{  
         try {  
-        		while(!stop_thread)
+        		while(!stop)
         		{
         			byte[] receive_byte = new byte[1024];
         			DatagramPacket receive_packet = new DatagramPacket(receive_byte, receive_byte.length);
@@ -351,7 +351,7 @@ public class sender extends Thread{
         		    if(is_end)
         		    {
         		    	start_fin(send_confirm.get(send_confirm.size()-1)[3],send_confirm.get(send_confirm.size()-1)[2]);
-        		    	stop_thread=true;
+        		    	stop=true;
         		    	sendSocket.close();
     	    			create_log_file();
         		    }

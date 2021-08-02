@@ -1,30 +1,6 @@
-snd	41	S	0	0	0
-rcv	123	SA	1164	0	1
-snd	129	A	1	0	1165
-snd	129	D	1	50	1165
-rcv	129	A	1165	0	51
-snd	129	D	51	50	1165
-rcv	129	A	1165	0	101
-snd	129	D	101	50	1165
-rcv	129	A	1165	0	151
-snd	129	D	151	50	1165
-rcv	129	A	1165	0	201
-snd	129	D	201	50	1165
-rcv	129	A	1165	0	251
-snd	129	D	251	50	1165
-rcv	129	A	1165	0	301
-snd	129	D	301	50	1165
-rcv	129	A	1165	0	351
-snd	129	D	351	50	1165
-rcv	129	A	1165	0	401
-snd	129	D	401	50	1165
-rcv	129	A	1165	0	451
-snd	129	D	451	50	1165
-rcv	129	A	1165	0	501
-snd	129	D	501	50	1165
-rcv	129	A	1165	0	551
-snd	129	D	551	6	1165
-rcv	129	A	1165	0	557
+snd	46	S	0	0	0
+rcv	125	SA	0	1017	1
+snd	125	A	1	0	1
 Amount of Data Transferred (in bytes): 564
 Number of Data Segments Sent (excluding retransmissions): 0
 Number of Packets Dropped: 0

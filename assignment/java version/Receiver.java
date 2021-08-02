@@ -1,13 +1,10 @@
-
 import java.io.*;
 import java.net.*;
 import java.util.*;
 
-import javax.swing.text.Segment;
-
 public class Receiver {
 	static long seed = System.currentTimeMillis();
-	static int server_isn = new Random(seed).nextInt(2048);
+	static int server_isn = 0;
 	static DatagramSocket receiverSocket;
 	static int seq_receiver;
 	static int ack_receiver;
@@ -156,7 +153,7 @@ public class Receiver {
 					sendSegment(segment);
 					write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
 				} else {
-					System.out.println("Debug: " + seq_sender + ack_receiver);
+					System.out.println("Debug: " + seq_sender + " " + ack_receiver);
 				}
 			} else if (flags.equals("F")) {
 				// if the receiver gets FINbit
@@ -199,12 +196,7 @@ public class Receiver {
         log_records.add(record);
         System.out.println(status + ", " + time + ", " + type_of_packet + ", " + seq + ", " + length + ", " + ack);
     }
-	// checked
-	public static void sendSegment(String segment) throws IOException{
-		sData = segment.getBytes();
-		sPacket = new DatagramPacket(sData, sData.length, senderIPAddress, senderPort);
-		receiverSocket.send(sPacket);
-	}
+
 	// checked
 	public static String makeFlag(String flags) {
         String flag;
@@ -229,6 +221,12 @@ public class Receiver {
     public static String makeSegment(int seq, int ack, String flags, String payload) {
         return (seq + "|" + ack + "|" + flags + "|" + payload);
     }
+	// checked
+	public static void sendSegment(String segment) throws IOException{
+		sData = segment.getBytes();
+		sPacket = new DatagramPacket(sData, sData.length, senderIPAddress, senderPort);
+		receiverSocket.send(sPacket);
+	}
 	// checked
 	public static String[] readSegment(DatagramSocket receiverSocket) throws Exception{
 		byte[] segment = new byte[1024];
