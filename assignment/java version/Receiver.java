@@ -3,6 +3,8 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
+import javax.swing.text.Segment;
+
 public class Receiver {
 	static long seed = System.currentTimeMillis();
 	static int server_isn = new Random(seed).nextInt(2048);
@@ -11,7 +13,7 @@ public class Receiver {
 	static int ack_receiver;
 	static int seq_sender;
 	static int ack_sender;
-	static int received;
+	static int ack_out;
 	static List<String[]> log_records = new ArrayList<String[]>();
 	static InetAddress senderIPAddress;
 	static int senderPort;
@@ -19,78 +21,78 @@ public class Receiver {
 	static byte[] rData = null;
 	static DatagramPacket sPacket;
 	static DatagramPacket rPacket;
+	static long start_time;
 
 	// summary variable
-	static File sender_log;
+	static File log;
 	static int data_transferred;
 	static int nSegments;
 	static int nDuplicate;
+
+	PriorityQueue<Map.Entry<Integer, String>> queue = new PriorityQueue<>();
+
 	public static void main(String[] args) throws Exception {
+		// check arguments
 		if (args.length != 2) {
 		    System.out.println("Usage: java " + Thread.currentThread().getStackTrace()[1].getClassName() 
                 + "<receiver_port> <FileReceived.txt>");
             System.exit(1);
         }
+		// assign variables from cmd line arguments
 	    int port = Integer.parseInt(args[0]);
 	    String filename = args[1];
 
 		// server setup
 	    receiverSocket = new DatagramSocket(port);
-		System.out.println("Server is ready :");
-		long start_time = System.currentTimeMillis();
-		long requestTime = 0;
-
+		System.out.println("Server is ready: ");
+		start_time = System.currentTimeMillis(); // starting time
+		log = create_log_file();
 		// some variables to store data from sender
         String[] line = null;
 		String payload = null;
-		String message = null;
+		String segment = null;
 		String flags = null; // PTP flag design F|S|A|D
-		
 		// 1. Connection setup between sender and receiver, listening state
 		// Three way handshake
 		System.out.println("Waiting for sender to connect.....");
-		while(true) {
-			rData = new byte[1024];
-			DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
+		boolean handshake = true;
+		while(handshake) {
+			// receive SYN from sender, decode segment
+			byte[] initial = new byte[1024];
+			DatagramPacket rPacket = new DatagramPacket(initial, initial.length);
 			receiverSocket.receive(rPacket);
-			requestTime = System.currentTimeMillis() - start_time;
-			String[] request = new String(rPacket.getData()).split("\\|");
-			sender_log = create_log_file();
-			seq_sender = Integer.parseInt(request[0]);
-			ack_sender = Integer.parseInt(request[1]);
-			flags = request[2];
-			// stage 1, SYN received
+			line = new String(rPacket.getData()).split("\\|");
+			seq_sender = Integer.parseInt(line[0]);
+			ack_sender = Integer.parseInt(line[1]);
+			flags = line[2];
+			// SYN received
 			if (flags.equals("S"))
 			{
-				write_to_log("rcv", requestTime, "S", seq_sender, request[4].length(), ack_sender);
+				write_to_log("rcv", 0, "S", seq_sender, 0, ack_sender);
 				// need IP and Port to send replies later
 				senderIPAddress = rPacket.getAddress();
 				senderPort = rPacket.getPort();
-
-				// stage 2, sending SYNACK
+				// prepare receiver information and send SYNACK
 				seq_receiver = server_isn;
 				ack_receiver = (seq_sender + 1);
-				payload = "";
 				flags = "0110";
-				message = makeHeader(seq_receiver, ack_receiver, flags, payload);
-				sData = message.getBytes();
-				DatagramPacket sPacket = new DatagramPacket(sData, sData.length, senderIPAddress, senderPort);
-				receiverSocket.send(sPacket);
-				requestTime = System.currentTimeMillis() - start_time;
-				write_to_log("snd", requestTime, makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
+				payload = "";
+				// make segment and send
+				segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), payload);
+				sendSegment(segment);
+				write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
 			}
 			// stage 3, ack
 			if (flags.equals("A"))
 			{
-				write_to_log("rcv", requestTime, "A", seq_sender, 0, ack_sender);
+				write_to_log("rcv", getTime(), "A", seq_sender, 0, ack_sender);
 				System.out.println("Connection established for " + senderIPAddress + ".....");
-				break;
+				handshake = false;
 			}
 		}
 
 		System.out.println("File transfer initiating.....Receiving");
 		// 2. Data Transmission (repeat until end of file)
-		Map<Integer, String> buffer = new HashMap<Integer, String>();
 		File f = new File(filename);
         try {
 			if (f.exists())
@@ -99,67 +101,79 @@ public class Receiver {
 		} catch(Exception e) {
 			e.printStackTrace();  
 		}
-
-		while(true) {
+		Map<Integer, String> buffer = new HashMap<Integer, String>();
+		boolean transfer = true;
+		while(transfer) {
 			// a. Receive PTP segment
-			rData = new byte[1024];
-			DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
-			receiverSocket.receive(rPacket);
-			requestTime = System.currentTimeMillis() - start_time;
-			line = new String(rPacket.getData()).stripTrailing().split("\\|");
+			line = readSegment(receiverSocket);
 			seq_sender = Integer.parseInt(line[0]);
 			ack_sender = Integer.parseInt(line[1]);
 			flags = line[2];
 			payload = line[3];
-			// Receving a packet, if it is data packet
+			// if it is data packet
 			if (flags.equals("D")){
 				if (seq_sender == ack_receiver) {
 					// b. two scenarios, 1 is normal packet, 2 is retransmission
-					
-					if (seq_sender < received) { // if it is out of order packet
-
+					if(buffer.containsKey(ack_receiver + payload.length())){
+						// ack the current packet
+						write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
+						while(buffer.containsKey(ack_receiver + payload.length())) {
+							// get packets from buffer and write to file
+							String value = buffer.get(ack_receiver + payload.length());
+							writeFile(f, value);
+							// update ack_receiver and remove entry from buffer
+							ack_receiver += payload.length();
+							buffer.remove(seq_sender + payload.length());
+						}
+						ack_receiver += payload.length();
+						payload = "";
+						segment = makeSegment(seq_receiver, ack_receiver, "A", payload);
+						sendSegment(segment);
+						write_to_log("snd", getTime(), "A", seq_receiver, 0, ack_receiver);
 					} else {
-						writeFile(f, payload);
-						write_to_log("rcv", requestTime, "D", seq_sender, payload.length(), ack_sender);
-	
+						write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
+						writeFile(f, payload); // write the payload to the received file
 						seq_receiver = ack_sender;
-						ack_receiver = seq_sender + payload.length();
+						ack_receiver = seq_sender + payload.length(); // add payload length
+						flags = "0010";
 						payload = "";
 						// send ack back to sender
-						message = makeHeader(seq_receiver, ack_receiver, "A", payload);
-						send_message(message);
-						requestTime = System.currentTimeMillis() - start_time;
-						write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
+						segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), payload);
+						sendSegment(segment);
+						write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
 					}
 
 				} else if (seq_sender > ack_receiver) {
 					System.out.println("Dectecting out of order packet....." + seq_sender);
+					write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 					// 1. put the out of order packet in buffer
 					buffer.put(seq_sender, payload);
-					received = seq_sender;
-					// 2. send the corresponding ack
-					message = makeHeader(seq_receiver, ack_receiver, "0010", payload);
-					send_message(message);
-					write_to_log("snd", requestTime, "A", seq_receiver, 0, ack_receiver);
+					ack_out = seq_sender + payload.length();
+					flags = "0010";
+					payload = "";
+					// 2. send the corresponding ack without updating receiver seq and ack
+					segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), payload);
+					sendSegment(segment);
+					write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
 				} else {
 					System.out.println("Debug: " + seq_sender + ack_receiver);
 				}
-			} else if (flags.equals("F") && seq_sender == ack_receiver) {
-				// if the receiver gets FINbit and seq_sender is same as current ack,
-				write_to_log("rcv", requestTime, "F", seq_sender, 0, ack_sender);
+			} else if (flags.equals("F")) {
+				// if the receiver gets FINbit
+				write_to_log("rcv", getTime(), flags, seq_sender, 0, ack_sender);
 				seq_receiver = ack_sender;
 				ack_receiver = seq_sender + 1;
-				// sending FINACK "1010" = FA
-				flags = "1010";
-				message = makeHeader(seq_receiver, ack_receiver, flags, payload);
-				send_message(message);
-				requestTime = System.currentTimeMillis() - start_time;
-				write_to_log("snd", requestTime, "FA", seq_receiver, 0, ack_receiver);
+				flags = "1010"; // FINACK
+				payload = "";
+				segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), payload);
+				sendSegment(segment);
+				write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
 			} else if (flags.equals("A")) {
 				// this else if is only for connection close period
 				// ACK is received from receiver, tear down connection
-				write_to_log("rcv", requestTime, "A", seq_sender, 0, ack_sender);
-				break;
+				write_to_log("rcv", getTime(), flags, seq_sender, 0, ack_sender);
+				transfer = false;
+				System.out.println("Connection close...");
 			} else {
 				System.out.println("Unexpected error, aborting...");
 				System.exit(1);
@@ -167,9 +181,13 @@ public class Receiver {
 		}
 		// 	3. Connection teardown
 		receiverSocket.close();
-		write_receiver_log(sender_log);
+		write_receiver_log(log);
 	}
-
+	// checked
+	public static long getTime(){
+		return System.currentTimeMillis() - start_time;
+	}
+	// checked
 	public static void write_to_log(String status, long time, String type_of_packet, int seq, int length, int ack){
         String[] record = new String[6];
         record[0] = status;
@@ -181,13 +199,13 @@ public class Receiver {
         log_records.add(record);
         System.out.println(status + ", " + time + ", " + type_of_packet + ", " + seq + ", " + length + ", " + ack);
     }
-
-	public static void send_message(String message) throws IOException{
-		sData = message.getBytes();
+	// checked
+	public static void sendSegment(String segment) throws IOException{
+		sData = segment.getBytes();
 		sPacket = new DatagramPacket(sData, sData.length, senderIPAddress, senderPort);
 		receiverSocket.send(sPacket);
 	}
-
+	// checked
 	public static String makeFlag(String flags) {
         String flag;
         if(flags.equals("0100"))
@@ -207,13 +225,19 @@ public class Receiver {
         }
         return flag;
     }
-
-    public static String makeHeader(int seq, int ack, String flags, String payload){
-        String flag = makeFlag(flags);
-        String result = seq + "|" + ack + "|" + flag + "|" + payload + "|";
-        return result;
+	// checked
+    public static String makeSegment(int seq, int ack, String flags, String payload) {
+        return (seq + "|" + ack + "|" + flags + "|" + payload);
     }
-
+	// checked
+	public static String[] readSegment(DatagramSocket receiverSocket) throws Exception{
+		byte[] segment = new byte[1024];
+		DatagramPacket segmentPacket = new DatagramPacket(segment, segment.length);
+		receiverSocket.receive(segmentPacket);
+		String[] result = new String(segmentPacket.getData()).split("\\|");
+		return result;
+	}
+	// checked
     public static File create_log_file() throws Exception {
         File f = new File("Receiver_log.txt");
         try {
@@ -225,7 +249,7 @@ public class Receiver {
 		}
 		return f;
     }
-
+	// checked
     public static void writeFile(File f, String payload) throws FileNotFoundException, IOException{
 		try{
             FileWriter fw = new FileWriter(f, true);
@@ -236,7 +260,7 @@ public class Receiver {
 			e.printStackTrace();  
 		}
     }
-
+	// checked
     public static void write_receiver_log(File f) throws FileNotFoundException, IOException{
         FileOutputStream oStream = new FileOutputStream(f);        
         String row = "";

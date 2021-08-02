@@ -188,16 +188,17 @@ public class Sender extends Thread {
         int LastByteAcked = sender_seq;
         int triple_counter = 0;
         String header, flags;
-        for(int i = 0; i < linesToSend.size(); i++) {
-            while(LastByteSent - LastByteAcked <= MWS && LastByteSent < data_transferred) {
+        while(LastByteSent - LastByteAcked <= MWS && LastByteSent < data_transferred) {
+            for(int i = 0; i < linesToSend.size(); i++) {
                 flags = "0001";
+                System.out.println("check 1 " + LastByteSent + " " + LastByteAcked);
+                System.out.println("check 2 " + sender_seq + " " + sender_ack);
                 header = makeHeader(sender_seq, sender_ack, flags, linesToSend.get(i));
                 sData = header.getBytes();
                 DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
                 LastByteSent = (LastByteSent + linesToSend.get(i).length() > data_transferred) ? LastByteSent + linesToSend.get(i+1).length(): LastByteSent + MSS;
                 // sending
                 if(random.nextFloat() > pdrop) {
-                    System.out.println("This is to check: " + "LastByteAcked" + LastByteAcked + "sender_seq" + sender_seq);
                     senderSocket.send(sendPacket);
                     write_log_record("snd", requestTime, makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
                 } else {
@@ -208,40 +209,28 @@ public class Sender extends Thread {
                     continue;
                 }
 
-                try {
-                    rData = new byte[1024];
-                    DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
-                    senderSocket.receive(rPacket);
-                    String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
-                    seq_receiver = Integer.parseInt(response[0]);
-                    ack_receiver = Integer.parseInt(response[1]);
-                    System.out.println("Final: " + " LastByteAcked " + LastByteAcked + " sender_seq " + sender_seq);
-                    write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
-                    if (ack_receiver < LastByteSent) {
-                        // two scenario, either it is an out of order packet
-                        // or it is a retransmission ack
-                        if (LastByteAcked + linesToSend.get(i).length() == ack_receiver) { // retrans
-                            LastByteAcked = ack_receiver;
-                            sender_seq = ack_receiver;
-                        } else { // out of order
-                            sender_seq = LastByteSent;
-                            triple_counter++;
-                            if (triple_counter == 3) {
-                                sender_seq = LastByteAcked;
-                                triple_counter = 0;
-                            }
-                        }
-                    } else {
-                        // expected ack received
-                        LastByteAcked = ack_receiver;
-                        sender_seq = ack_receiver;
-                        break;
-                    }
-                    sender_ack = seq_receiver;
-                } catch (Exception e) { // time out even
+                rData = new byte[1024];
+                DatagramPacket rPacket = new DatagramPacket(rData, rData.length);
+                senderSocket.receive(rPacket);
+                String[] response = new String(rPacket.getData()).stripTrailing().split("\\|");
+                seq_receiver = Integer.parseInt(response[0]);
+                ack_receiver = Integer.parseInt(response[1]);
+                
+                write_log_record("rcv", requestTime, "A", seq_receiver, 0, ack_receiver);
+                if (ack_receiver < LastByteSent) {
+                    // out of order packet
                     sender_seq = LastByteSent;
-                    sender_ack = seq_receiver;
+                    triple_counter++;
+                    if (triple_counter == 3) {
+                        System.out.println("triple" + triple_counter);
+                        sender_seq = LastByteAcked;
+                    }
+                } else {
+                    // expected ack received
+                    LastByteAcked = ack_receiver;
+                    sender_seq = ack_receiver;
                 }
+                sender_ack = seq_receiver;
             } // end of while
         }
     }

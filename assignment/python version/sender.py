@@ -76,7 +76,6 @@ def write_log_line(header, category, time, log):
 
 # Confirm there are enough supplied arguments.
 if len(sys.argv) < 9:
-	print("Server is up: waiting for handshake")
 	sys.exit()
 
 # Assign variables from supplied arguments.
