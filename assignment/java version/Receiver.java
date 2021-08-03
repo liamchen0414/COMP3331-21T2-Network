@@ -117,6 +117,7 @@ public class Receiver {
 						while(buffer.containsKey(ack_receiver + payload.length())) {
 							// get packets from buffer and write to file
 							String value = buffer.get(ack_receiver + payload.length());
+							System.out.println(value);
 							writeFile(f, value);
 							// update ack_receiver and remove entry from buffer
 							ack_receiver += payload.length();
@@ -146,6 +147,7 @@ public class Receiver {
 					System.out.println("Dectecting out of order packet....." + seq_sender);
 					write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 					// 1. put the out of order packet in buffer
+					System.out.println(payload);
 					buffer.put(seq_sender, payload);
 					ack_out = seq_sender + payload.length();
 					flags = "0010";

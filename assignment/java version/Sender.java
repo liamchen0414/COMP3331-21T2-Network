@@ -1,3 +1,4 @@
+
 import java.util.*;
 import java.io.*;
 import java.net.*;
@@ -26,6 +27,7 @@ public class Sender extends Thread {
 	static String fileName;
 	static int MWS;
 	static int MSS;
+    static int window_size;
 	static int timeout;
 	static Double pdrop;
 	static int seed;
@@ -156,6 +158,8 @@ public class Sender extends Thread {
         nDropped = 0;
         nSegments_retrans = 0;
         readFile();
+        window_size = MWS/MSS;
+
         int LastByteSent = sender_seq;
         int LastByteAcked = sender_seq;
         int triple_counter = 0;
@@ -336,23 +340,3 @@ public class Sender extends Thread {
         oStream.close();
     }
 }
-
-
-            // TimerTask task= new TimerTask() {
-            //     public void run() {
-            //         if(LastByteAcked != LastByteSent) { // if this is a retransmission pack
-            //             try {
-            //                 nSegments_retrans += 1;
-            //                 segment = makeSegment(ack_receiver, seq_receiver, flags, linesToSend.get(ack_receiver/MSS));
-            //                 sendSegment(segment);
-            //                 write_to_log("snd", getTime(), "D", ack_receiver, linesToSend.get(ack_receiver/MSS).length(), seq_receiver); 
-            //             } catch (Exception e) {
-                            
-            //             }
-            //         } else {
-            //             cancel(); // is this right??
-            //         }
-            //     }
-            // };
-            // Timer timer = new Timer();
-            // timer.schedule(task, timeout);

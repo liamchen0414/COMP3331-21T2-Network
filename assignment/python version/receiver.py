@@ -39,11 +39,10 @@ def write_to_file(header):
 	with open(file, 'a') as f:
 		f.write(header[3])
 
-
 # Main program starts here
 
 # Confirm there are enough supplied arguments.
-if len(sys.argv) < 3:
+if len(sys.argv) != 3:
 	print("not enough arguments.")
 	sys.exit()
 
@@ -53,59 +52,59 @@ file = sys.argv[2]
 
 # Assign other variables.
 seq = '0'
-ack = False
+ack = '0'
 log = 'Receiver_log.txt'
 listening = True
-file_created, time_init = False, False
-rec_data = 0
-data_seg = 0
-dup_seg = 0
+file_created = False
+data_received = 0
+nData_seg = 0
+nDup_Seg = 0
 with open(log, 'w') as f:
 	f.write('')
 
 # create a receiver socket and set it to listen for a client.
-rSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-rSocket.bind(('', receiver_port))
+receiverSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+receiverSocket.bind(('', receiver_port))
+start_time = time.time()
 
+# 3way handshake
+senderSegment, sAddress = receiverSocket.recvfrom(2048)
+senderSegment = senderSegment.decode().split('|')
+seq, ack, F, S, A, D = read_segment(senderSegment, seq)
+write_log_line(senderSegment, 'rcv', time.time()-start_time, log) # write syn to log
+# reply with synack
+replySegment = create_segment(seq, ack, '0110')
+receiverSocket.sendto(replySegment.encode(), sAddress)
+write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
+# ack
+senderSegment, sAddress = receiverSocket.recvfrom(2048)
+senderSegment = senderSegment.decode().split('|')
+write_log_line(senderSegment, 'rcv', time.time()-start_time, log)
+with open(file, 'w') as f:
+	f.write('')
 Buffer = deque()
-
 while listening:
-	sSegment, sAddress = rSocket.recvfrom(2048)
+	senderSegment, sAddress = receiverSocket.recvfrom(2048)
+	senderSegment = senderSegment.decode().split('|')
+	write_log_line(senderSegment, 'rcv', time.time()-start_time, log)
 
-	if not time_init:
-		st_time = time.time()
-		time_init = True
-	sSegment = sSegment.decode('ascii').split('|')
-	write_log_line(sSegment, 'rcv', time.time()-st_time, log)
-
-	if sSegment[0] != ack and ack != False:
+	if senderSegment[0] != ack:
 		# Buffer the data segment if it is out of order.
-		if int(sSegment[0]) > int(ack):
-			rSocket.sendto(rSegment.encode('ascii'), sAddress)
-			write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
-			Buffer.append(sSegment)
-			data_seg += 1
-			rec_data += len(sSegment[3])
-		# Ignore duplicate segment that was already received.
+		if int(senderSegment[0]) > int(ack):
+			receiverSocket.sendto(replySegment.encode(), sAddress)
+			write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
+			Buffer.append(senderSegment)
+			data_received += len(senderSegment[3])
 		else:
-			dup_seg += 1
-			data_seg += 1
-	# Creates output file once final ACK of handshake is received.
-	elif int(sSegment[2][2]):
-		if not file_created:
-			with open(file, 'w') as f:
-				f.write('')
-			file_created = True
+			# duplicate segment counting
+			nDup_Seg += 1
+		nData_seg += 1
 	else:
-		seq, ack, F, S, A, D = read_segment(sSegment, seq)
-		if int(S):
-			rSegment = create_segment(seq, ack, '0110')
-			rSocket.sendto(rSegment.encode('ascii'), sAddress)
-			write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
-		elif int(D):
-			data_seg += 1
-			rec_data += len(sSegment[3])
-			write_to_file(sSegment)
+		seq, ack, F, S, A, D = read_segment(senderSegment, seq)
+		if int(D):
+			nData_seg += 1
+			data_received += len(senderSegment[3])
+			write_to_file(senderSegment)
 			if Buffer:
 				while Buffer[0][0] == ack and len(Buffer) > 1:
 					next_header = Buffer.popleft()
@@ -115,34 +114,38 @@ while listening:
 					next_header = Buffer.popleft()
 					write_to_file(next_header)
 					seq, ack, F, S, A, D = read_segment(next_header, seq)
-				rSegment = create_segment(seq, ack, '0010')
-				rSocket.sendto(rSegment.encode('ascii'), sAddress)
-				write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
+				replySegment = create_segment(seq, ack, '0010')
+				receiverSocket.sendto(replySegment.encode(), sAddress)
+				write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
 			else:
-				rSegment = create_segment(seq, ack, '0010')
-				rSocket.sendto(rSegment.encode('ascii'), sAddress)
-				write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
-		elif int(A):
-			with open(log_file, 'w') as f:
-				f.write('')
+				replySegment = create_segment(seq, ack, '0010')
+				receiverSocket.sendto(replySegment.encode(), sAddress)
+				write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
 		elif int(F):
-			rSegment = create_segment(seq, ack, '0010')
-			rSocket.sendto(rSegment.encode('ascii'), sAddress)
-			write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
-			rSegment = create_segment(seq, ack, '1000')
-			rSocket.sendto(rSegment.encode('ascii'), sAddress)
-			write_log_line(rSegment.split('|'), 'snd', time.time()-st_time, log)
-			while listening:
-				sSegment, sAddress = rSocket.recvfrom(2048)
-				sSegment = sSegment.decode('ascii').split('|')
-				write_log_line(sSegment, 'rcv', time.time()-st_time, log)
-				rSocket.close()
-				listening = False
+			# fin is already recorded
+			listening = False
+
+# 4 way close connection
+# F
+replySegment = create_segment(seq, ack, '0010')
+receiverSocket.sendto(replySegment.encode(), sAddress)
+write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
+# A
+replySegment = create_segment(seq, ack, '1000')
+receiverSocket.sendto(replySegment.encode(), sAddress)
+write_log_line(replySegment.split('|'), 'snd', time.time()-start_time, log)
+
+senderSegment, sAddress = receiverSocket.recvfrom(2048)
+senderSegment = senderSegment.decode().split('|')
+write_log_line(senderSegment, 'rcv', time.time()-start_time, log)
+# connection closed
+print('debug: connection closed')
+receiverSocket.close()
 
 with open(log, 'a') as f:
-	f.write('\nAmount of Data received: ' + str(rec_data))
-	f.write('\nNumber of Data segments Received: ' + str(data_seg))
-	f.write('\nNumber of duplicate segments received: ' + str(dup_seg))
+	f.write('\nAmount of Data received: ' + str(data_received))
+	f.write('\nNumber of Data segments Received: ' + str(nData_seg))
+	f.write('\nNumber of duplicate segments received: ' + str(nDup_Seg))
 					
 
 

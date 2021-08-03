@@ -1,0 +1,20 @@
+rcv	0	S	15	0	0
+snd	12	SA	75	0	16
+rcv	25	A	16	0	76
+rcv	39	D	16	100	76
+snd	47	A	75	0	116
+rcv	48	D	116	100	76
+snd	48	A	75	0	216
+rcv	48	D	316	100	76
+snd	49	A	75	0	216
+rcv	49	D	416	100	76
+snd	50	A	75	0	216
+rcv	50	D	516	100	76
+snd	50	A	75	0	216
+rcv	51	D	216	100	76
+rcv	53	F	616	0	76
+snd	54	FA	75	0	617
+rcv	55	A	617	0	76
+Amount of Data Received(in bytes) = 600
+Number of Data Segments Received =  6
+Number of duplicate segments received =  0

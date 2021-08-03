@@ -13,7 +13,7 @@ def PLD_module(h, sSocket, log, resnd=0):
 	p = random()
 	if p > pdrop:
 		write_log_line(h.split('|'), 'snd', time.time()-st_time, log)
-		sSocket.sendto(h.encode('ascii'), rAddress)
+		sSocket.sendto(h.encode(), rAddress)
 		seg_sent += 1
 		if resnd:
 			resent += 1
@@ -46,14 +46,14 @@ def create_segment(seq, ack, flag, data=''):
 
 # Reads header, updates seq/ack and assigns flags.
 def read_segment(h):
-	h = h.decode('ascii').split('|')
+	h = h.decode().split('|')
 	seq = str(int(h[1]))
 	ack = str(int(h[0]))
 	F, S, A, D = h[2][0], h[2][1], h[2][2], h[2][3]
 	return seq, ack, F, S, A, D, h
 
 def check_ack(h):
-	return int(h.decode('ascii').split('|')[1])
+	return int(h.decode().split('|')[1])
 
 # Formats and writes a line to log file.
 def write_log_line(header, category, time, log):
@@ -117,94 +117,83 @@ stage = [False, False, False]
 # Main loop continues until all stages are complete.
 st_time = time.time()
 
-while False in stage:
-	
-	# Stage 1 initial handshake.
-	if not stage[0]:
-		# Send initial SYN segment to receiver.
-		sSegment = create_segment(seq, ack, '0100')
-		sSocket.sendto(sSegment.encode('ascii'), rAddress)
-		write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
-		# Receive SYNACK response from receiver.
-		rSegment, rAddress = sSocket.recvfrom(2048)
-		seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
-		write_log_line(rSegment, 'rcv', time.time()-st_time, log)
-		# Send final ACK segment if SYNACK was received.
-		if int(S) and int(A):
-			ack = str(int(ack)+1)
-			sSegment = create_segment(seq, ack, '0010')
-			sSocket.sendto(sSegment.encode('ascii'), rAddress)
-			write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
-			stage[0] = True
+# Send initial SYN segment to receiver.
+sSegment = create_segment(seq, ack, '0100')
+sSocket.sendto(sSegment.encode(), rAddress)
+write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
+# Receive SYNACK response from receiver.
+rSegment, rAddress = sSocket.recvfrom(2048)
+seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
+write_log_line(rSegment, 'rcv', time.time()-st_time, log)
+# Send final ACK segment if SYNACK was received.
+if int(S) and int(A):
+	ack = str(int(ack)+1)
+	sSegment = create_segment(seq, ack, '0010')
+	sSocket.sendto(sSegment.encode(), rAddress)
+	write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
 
-	# Stage 2 sending data.
-	elif not stage[1]:
-		Buffer = deque()
-		send_times = deque()
-		sSocket.settimeout(0.00001)
-		curr_seq, init_seq, j = seq, seq, 0
-		while int(seq)-int(init_seq) < file_size:
-			# Send packets if there is available window space.
-			if (int(curr_seq) - int(seq)) + MSS <= MWS and j < len(contents):
-				sSegment = create_segment(curr_seq, ack, '0001', contents[j])
-				curr_seq = str(int(curr_seq) + len(contents[j]))
-				Buffer.append(sSegment)
-				send_times.append(time.time())
-				PLD_module(sSegment, sSocket, log)
-				j += 1
+Buffer = deque()
+send_times = deque()
+sSocket.settimeout(0.00001)
+curr_seq, init_seq, j = seq, seq, 0
+while int(seq)-int(init_seq) < file_size:
+	# Send packets if there is available window space.
+	if (int(curr_seq) - int(seq)) + MSS <= MWS and j < len(contents):
+		sSegment = create_segment(curr_seq, ack, '0001', contents[j])
+		curr_seq = str(int(curr_seq) + len(contents[j]))
+		Buffer.append(sSegment)
+		send_times.append(time.time())
+		PLD_module(sSegment, sSocket, log)
+		j += 1
+	else:
+		# Resend packet if a timeout or triple duplicate ack occurs.
+		if time.time() >= send_times[0] + timeout or curr_dup >= 3:
+			curr_dup = 0
+			PLD_module(Buffer[0], sSocket, log, 1)
+			send_times[0] = time.time()
+		# Listen for ACK response from receiver
+		try:
+			rSegment, rAddress = sSocket.recvfrom(2048)
+			curr_ack = check_ack(rSegment)
+			# Checks if duplicate ACK is received.
+			if curr_ack <= int(seq):
+				rSegment = rSegment.decode().split('|')
+				write_log_line(rSegment, 'rcv', time.time()-st_time, log)
+				duplicates += 1
+				curr_dup += 1
+			# Reads ACK removes acknowledged segments from buffer and updates window.
 			else:
-				# Resend packet if a timeout or triple duplicate ack occurs.
-				if time.time() >= send_times[0] + timeout or curr_dup >= 3:
-					curr_dup = 0
-					PLD_module(Buffer[0], sSocket, log, 1)
-					send_times[0] = time.time()
-				# Listen for ACK response from receiver
-				try:
-					rSegment, rAddress = sSocket.recvfrom(2048)
-					curr_ack = check_ack(rSegment)
-					# Checks if duplicate ACK is received.
-					if curr_ack <= int(seq):
-						rSegment = rSegment.decode('ascii').split('|')
-						write_log_line(rSegment, 'rcv', time.time()-st_time, log)
-						duplicates += 1
-						curr_dup += 1
-					# Reads ACK removes acknowledged segments from buffer and updates window.
-					else:
-						curr_dup = 0
-						seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
-						write_log_line(rSegment, 'rcv', time.time()-st_time, log)
-						while int(Buffer[0].split('|')[0]) < int(seq) and len(Buffer) > 1:
-							Buffer.popleft()
-							send_times.popleft()
-						if int(Buffer[0].split('|')[0]) < int(seq):
-								Buffer.popleft()
-								send_times.popleft()
-				except socket.timeout:
-					continue
-		sSocket.settimeout(None)
-		stage[1] = True
+				curr_dup = 0
+				seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
+				write_log_line(rSegment, 'rcv', time.time()-st_time, log)
+				while int(Buffer[0].split('|')[0]) < int(seq) and len(Buffer) > 1:
+					Buffer.popleft()
+					send_times.popleft()
+				if int(Buffer[0].split('|')[0]) < int(seq):
+						Buffer.popleft()
+						send_times.popleft()
+		except socket.timeout:
+			continue
+sSocket.settimeout(None)
 
-	# Stage 3 final handshake.
-	elif not stage[2]:
-		# Sends initial FIN segment.
-		sSegment = create_segment(seq, ack, '1000')
-		sSocket.sendto(sSegment.encode('ascii'), rAddress)
-		write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
-		# Waits to receive ACK.
-		rSegment, rAddress = sSocket.recvfrom(2048)
-		seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
-		write_log_line(rSegment, 'rcv', time.time()-st_time, log)
-		# Waits to recieve FIN.
-		rSegment, rAddress = sSocket.recvfrom(2048)
-		seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
-		write_log_line(rSegment, 'rcv', time.time()-st_time, log)
-		# Returns final ACK segment and closes.
-		ack = str(int(ack)+1)
-		sSegment = create_segment(seq, ack, '0010')
-		sSocket.sendto(sSegment.encode('ascii'), rAddress)
-		write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
-		sSocket.close()
-		stage[2] = True
+# Sends initial FIN segment.
+sSegment = create_segment(seq, ack, '1000')
+sSocket.sendto(sSegment.encode(), rAddress)
+write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
+# Waits to receive ACK.
+rSegment, rAddress = sSocket.recvfrom(2048)
+seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
+write_log_line(rSegment, 'rcv', time.time()-st_time, log)
+# Waits to recieve FIN.
+rSegment, rAddress = sSocket.recvfrom(2048)
+seq, ack, F, S, A, D, rSegment = read_segment(rSegment)
+write_log_line(rSegment, 'rcv', time.time()-st_time, log)
+# Returns final ACK segment and closes.
+ack = str(int(ack)+1)
+sSegment = create_segment(seq, ack, '0010')
+sSocket.sendto(sSegment.encode(), rAddress)
+write_log_line(sSegment.split('|'), 'snd', time.time()-st_time, log)
+sSocket.close()
 
 with open(log, 'a') as f:
 	f.write('\nAmount of Data Transferred: ' + str(file_size))
