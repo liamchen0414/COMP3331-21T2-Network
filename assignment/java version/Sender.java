@@ -114,7 +114,7 @@ public class Sender extends Thread {
 	    ack_receiver = Integer.parseInt(response[1]);
         flags = response[2];
         payload = response[3];
-        write_to_log("rcv", getTime(), flags, seq_receiver, payload.length(), ack_receiver);
+        write_to_log("rcv", getTime(), flags, seq_receiver, 0, ack_receiver);
         System.out.println("Received Handshake Response");
 
         // stage 3
@@ -130,7 +130,7 @@ public class Sender extends Thread {
     }
     
     // aux function to process file
-	public static void readFile() throws IOException,FileNotFoundException{
+	public static void readFile() throws Exception{
 		linesToSend = new ArrayList<String>();
         file_size = (int)(new File(fileName)).length();
         FileReader f = new FileReader(fileName);
@@ -148,90 +148,68 @@ public class Sender extends Thread {
 			linesToSend.add(getLine);
 			file = file.substring(MSS, file.length());
 		}
-		linesToSend.add(file);
+		linesToSend.add(file);  // add the last line to file
 	}
 
     public static void send() throws Exception {
-        // starting a thread
-        Sender receive_thread = new Sender();
-        receive_thread.start();
-        while(true) {
-            syncLock.lock();
-            response = readSegment(senderSocket);
-            seq_receiver = Integer.parseInt(response[0]);
-            ack_receiver = Integer.parseInt(response[1]);
-            flags = response[2];
-            payload = response[3];
-            System.out.println("test: " + seq_receiver + "," + ack_receiver + "," + flags);
-            write_to_log("rcv", getTime(), flags, seq_receiver , payload.length(), ack_receiver);
-            if (ack_receiver < LastByteSent) {
-                // out of order packet
-                sender_seq = LastByteSent;
-                triple_counter++;
-                if (triple_counter == 3) {
-                    System.out.println("triple" + triple_counter);
-                    sender_seq = LastByteAcked;
+        nSegments = 0;
+        nDropped = 0;
+        nSegments_retrans = 0;
+        readFile();
+        int LastByteSent = sender_seq;
+        int LastByteAcked = sender_seq;
+        int triple_counter = 0;
+        for(int i = 0; i < linesToSend.size(); i++) {
+            while(LastByteSent - LastByteAcked <= MWS && LastByteSent < file_size && LastByteAcked < file_size) {
+                flags = "0001";
+                segment = makeSegment(sender_seq, sender_ack, flags, linesToSend.get(i));
+                sData = segment.getBytes();
+                DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
+                LastByteSent = Math.min(LastByteSent + linesToSend.get(i).length(), LastByteSent + MSS);
+                // sending
+                if(random.nextFloat() > pdrop) {
+                    senderSocket.send(sendPacket);
+                    write_to_log("snd", getTime(), makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
+                } else {
+                    write_to_log("drop", getTime(), makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);  
+                    nDropped++;
+                    i++;
+                    sender_seq = LastByteSent;
+                    continue;
                 }
-            } else {
-                // expected ack received
-                LastByteAcked = ack_receiver;
-                sender_seq = ack_receiver;
-            }
-            sender_ack = seq_receiver;
-            
-            TimerTask task= new TimerTask() {
-                public void run() {
-                    if(LastByteAcked != LastByteSent) { // if this is a retransmission pack
-                        try {
-                            nSegments_retrans += 1;
-                            segment = makeSegment(ack_receiver, seq_receiver, flags, linesToSend.get(ack_receiver/MSS));
-                            sendSegment(segment);
-                            write_to_log("snd", getTime(), "D", ack_receiver, linesToSend.get(ack_receiver/MSS).length(), seq_receiver); 
-                        } catch (Exception e) {
-                            
+                try {
+                    String[] response = readSegment(senderSocket);
+                    seq_receiver = Integer.parseInt(response[0]);
+                    ack_receiver = Integer.parseInt(response[1]);
+                    write_to_log("rcv", getTime(), "A", seq_receiver, 0, ack_receiver);
+                    if (ack_receiver < sender_seq) {
+                        // two scenario, either it is an out of order packet
+                        // or it is a retransmission ack
+                        if (LastByteAcked + linesToSend.get(i).length() == ack_receiver) { // retrans
+                            LastByteAcked = ack_receiver;
+                            sender_seq = ack_receiver;
+                        } else { // out of order
+                            sender_seq = LastByteSent;
+                            triple_counter++;
+                            if (triple_counter == 3) {
+                                sender_seq = LastByteAcked;
+                                triple_counter = 0;
+                            }
                         }
                     } else {
-                        cancel(); // is this right??
+                        // expected ack received
+                        LastByteAcked = ack_receiver;
+                        sender_seq = ack_receiver;
+                        break;
                     }
+                    sender_ack = seq_receiver;
+                } catch (Exception e) { // time out event
+                    sender_seq = LastByteSent;
+                    sender_ack = seq_receiver;
                 }
-            };
-            Timer timer = new Timer();
-            timer.schedule(task, timeout);
-            syncLock.unlock();
+            } // end of while
         }
     }
-        // We will send from this thread
-    public void run() {
-        syncLock.lock();
-        for (int i = 0; i < linesToSend.size(); i++) {
-            System.out.println("debug line" + sender_seq);
-            LastByteSent = sender_seq;
-            LastByteAcked = sender_seq;
-            flags = "0001";
-            segment = makeSegment(sender_seq, sender_ack, flags, linesToSend.get(i));
-            sData = segment.getBytes();
-            DatagramPacket sendPacket = new DatagramPacket(sData, sData.length, receiver_host_ip, receiver_port);
-            LastByteSent = Math.min(LastByteSent + linesToSend.get(i).length(), LastByteSent + MSS);
-            // sending to PL module
-            if(random.nextFloat() > pdrop) {
-                try {
-                    senderSocket.send(sendPacket);
-                } catch(Exception e){
-
-                }
-                write_to_log("snd", getTime(), makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);             
-            } else {
-                sender_seq = LastByteSent;
-                write_to_log("drop", getTime(), makeFlag(flags), sender_seq, linesToSend.get(i).length(), sender_ack);  
-                nDropped++;
-                i++;
-                continue;
-            }
-        
-        } //run ends
-        syncLock.unlock();
-    }
-
 
 
     // 4-way connection termination(FIN,ACK+FIN,ACK)
@@ -247,8 +225,7 @@ public class Sender extends Thread {
             int seq2 = Integer.parseInt(response[0]);
             int ack2 = Integer.parseInt(response[1]);
             flags = response[2];
-            payload = response[3];
-            write_to_log("rcv", getTime(), flags, seq2, payload.length(), ack2);
+            write_to_log("rcv", getTime(), flags, seq2, 0, ack2);
 
             // connection fully closed
             int seq3 = ack2;
@@ -359,3 +336,23 @@ public class Sender extends Thread {
         oStream.close();
     }
 }
+
+
+            // TimerTask task= new TimerTask() {
+            //     public void run() {
+            //         if(LastByteAcked != LastByteSent) { // if this is a retransmission pack
+            //             try {
+            //                 nSegments_retrans += 1;
+            //                 segment = makeSegment(ack_receiver, seq_receiver, flags, linesToSend.get(ack_receiver/MSS));
+            //                 sendSegment(segment);
+            //                 write_to_log("snd", getTime(), "D", ack_receiver, linesToSend.get(ack_receiver/MSS).length(), seq_receiver); 
+            //             } catch (Exception e) {
+                            
+            //             }
+            //         } else {
+            //             cancel(); // is this right??
+            //         }
+            //     }
+            // };
+            // Timer timer = new Timer();
+            // timer.schedule(task, timeout);

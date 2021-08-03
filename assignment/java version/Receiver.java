@@ -120,11 +120,13 @@ public class Receiver {
 							writeFile(f, value);
 							// update ack_receiver and remove entry from buffer
 							ack_receiver += payload.length();
-							buffer.remove(seq_sender + payload.length());
+							seq_sender = seq_sender + payload.length();
+							System.out.println("Moving packet + " + seq_sender + " with length +" + payload.length());
+							buffer.remove(seq_sender);
+							
 						}
 						ack_receiver += payload.length();
-						payload = "";
-						segment = makeSegment(seq_receiver, ack_receiver, "A", payload);
+						segment = makeSegment(seq_receiver, ack_receiver, "A", "");
 						sendSegment(segment);
 						write_to_log("snd", getTime(), "A", seq_receiver, 0, ack_receiver);
 					} else {
@@ -161,10 +163,9 @@ public class Receiver {
 				seq_receiver = ack_sender;
 				ack_receiver = seq_sender + 1;
 				flags = "1010"; // FINACK
-				payload = "";
-				segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), payload);
+				segment = makeSegment(seq_receiver, ack_receiver, makeFlag(flags), "");
 				sendSegment(segment);
-				write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, payload.length(), ack_receiver);
+				write_to_log("snd", getTime(), makeFlag(flags), seq_receiver, 0, ack_receiver);
 			} else if (flags.equals("A")) {
 				// this else if is only for connection close period
 				// ACK is received from receiver, tear down connection

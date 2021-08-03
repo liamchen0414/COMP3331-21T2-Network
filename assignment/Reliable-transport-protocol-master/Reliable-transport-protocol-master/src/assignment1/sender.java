@@ -91,7 +91,7 @@ public class sender extends Thread{
 	    	
 	    	
 	    	// after 3 handshakes
-	    	get_file(filename, MSS);
+	    	readFile(filename, MSS);
 	    	create_confirm();
 	    	next_send_seq= ack1;
 	    	next_send_ack= seq2;
@@ -127,7 +127,7 @@ public class sender extends Thread{
 		System.out.println(action+"  "+time+"  "+type_of_packet+"  "+seq+"  "+length+"  "+ack);
 	}
 	
-	public static void get_file(String filename, int MSS) throws Exception
+	public static void readFile(String filename, int MSS) throws Exception
 	{
 		File file = new File(filename);
 		String line;
@@ -252,7 +252,6 @@ public class sender extends Thread{
 		}
 		
 		Timer timer = new Timer();
-		
 		TimerTask task= new TimerTask()
 		{
 			public void run() {
@@ -350,7 +349,7 @@ public class sender extends Thread{
         		    
         		    if(is_end)
         		    {
-        		    	start_fin(send_confirm.get(send_confirm.size()-1)[3],send_confirm.get(send_confirm.size()-1)[2]);
+        		    	closeConnection(send_confirm.get(send_confirm.size()-1)[3],send_confirm.get(send_confirm.size()-1)[2]);
         		    	stop=true;
         		    	sendSocket.close();
     	    			create_log_file();
@@ -361,7 +360,7 @@ public class sender extends Thread{
     }  
 
 	
-	public static void start_fin(int seq, int ack) throws Exception	
+	public static void closeConnection(int seq, int ack) throws Exception	
 	{
 		int fin=1;
 		String end_string1 = "fin"+fin+" seq"+seq+" ack"+ack;
