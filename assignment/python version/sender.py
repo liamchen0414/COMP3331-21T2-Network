@@ -139,7 +139,6 @@ line_index = 0
 is_finished = False
 
 while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
-	print('File transfering......')
 	# send if sender window is not full and there is still lines to send
 	# LastByteSent – LastByteAcked ≤ MWS and line_index <= nLines
 	if (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
@@ -152,15 +151,16 @@ while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 		PL_module(sendSegment, senderSocket, 0)
 		line_index += 1
 	else:
+		
 		# resend packet if a timeout
 		if (time.time() - timeWindow[0] >= timeout) or triple_dup_counter == 3:
 			# a retransmission should also be fed to pl module, change is_retrans flag to 1
 			if triple_dup_counter == 3:
 				triple_dup_counter == 0
-			else:
-				PL_module(senderWindow[0], senderSocket, 1)
-				# update the retrans packet sent time
-				timeWindow[0] = time.time()
+
+			PL_module(senderWindow[0], senderSocket, 1)
+			# update the retrans packet sent time
+			timeWindow[0] = time.time()
 		try:
 			receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
 			lastByteAcked = check_ack_receiver(receiverSegment)

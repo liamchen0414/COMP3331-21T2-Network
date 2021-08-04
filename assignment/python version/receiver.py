@@ -128,15 +128,15 @@ while listening:
 			print('unexpected error, need to debug')
 	else:
 		print('Out of order packet detected')
+		print(ack, senderSegment[0])
 		if int(ack) < int(senderSegment[0]):
 			# write it to log and packet_buffer and update data length received
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
-			nData_seg += 1
 			packet_buffer.append(senderSegment)
 		else:
 			nDup_Seg += 1 # Duplicate segment
-			nData_seg += 1
+		nData_seg += 1
 		
 # 3. 4-way close connection
 # FA
