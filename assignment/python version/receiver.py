@@ -106,20 +106,21 @@ while listening:
 			# in order packet
 			nData_seg += 1
 			write_to_file(senderSegment)
-			data_received += + len(senderSegment[3]) # add payload length to data received
+			data_received += len(senderSegment[3])
 			# if retransmission is trigered
 			if packet_buffer:
 				# while there is something in the packet_buffer, we pop it and write it to the file
 				# we do it until there is no packet in the packet_buffer
 				while packet_buffer[0][0] == ack and len(packet_buffer) > 1:
-					old_packet = packet_buffer.popleft()
-					write_to_file(old_packet)
-					seq, ack, flags = read_segment(old_packet, seq)
+					next_segment = packet_buffer.popleft()
+					write_to_file(next_segment)
+					data_received += + len(next_segment[3])
+					seq, ack, flags = read_segment(next_segment, seq)
 			replySegment = create_segment(seq, ack, '0010')
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
 		elif int(flags[0]):
-			# fin is already recorded
+			# fin
 			listening = False
 			print('File transfer completed')
 			print('Connection closing')
@@ -131,13 +132,12 @@ while listening:
 			# write it to log and packet_buffer and update data length received
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
-			data_received += len(senderSegment[3])
 			nData_seg += 1
 			packet_buffer.append(senderSegment)
 		else:
 			nDup_Seg += 1 # Duplicate segment
 			nData_seg += 1
-
+		
 # 3. 4-way close connection
 # FA
 replySegment = create_segment(seq, ack, '1010')
