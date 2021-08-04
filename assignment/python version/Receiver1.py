@@ -1,17 +1,15 @@
 #!/usr/bin/python3
 
-import sys
-import os
-import random
-import time
 import socket
+import sys
+import time
 from collections import deque
 
-# creates a segment
+# Creates a header based on arguments.
 def create_segment(seq, ack, flag, payload=''):
 	return (seq + '|' + ack + '|' + flag + '|' + payload)
 
-# reads a segment
+# Reads a segment
 def read_segment(segment, seq):
 	ack = str(int(segment[0]) + max(len(segment[3]), 1))
 	if int(segment[1]):
@@ -19,17 +17,16 @@ def read_segment(segment, seq):
 	flags = segment[2]
 	return seq, ack, flags
 
-# append a line to file
+# Appends packet payload to file
 def write_to_file(segment):
 	with open(file, 'a') as f:
 		f.write(segment[3])
 
-# Gets the current time difference
 def get_time():
 	return time.time()-start_time
 
-# Writes a line to log file.
-def write_log(status, time, segment):
+# Formats and writes a line to log file.
+def write_log_line(status, time, segment, log):
 	flag_type = ''
 	flag_list = ['F','S','A','D']
 	for i in range(0,4):
@@ -39,8 +36,11 @@ def write_log(status, time, segment):
 		'\t' + segment[0] + '\t' + str(len(segment[3])) + '\t' + segment[1] + '\n'
 	with open('Receiver_log.txt', 'a') as f:
 		f.write(line)
+# Get the time difference
+
 
 # Main program starts here
+
 # Checks argument
 if len(sys.argv) != 3:
 	print("Usage: python Receiver.py <port> <receivedfile.txt>")
@@ -72,22 +72,21 @@ with open(log, 'w') as f:
 start_time = time.time()
 
 print('Initiating threeway handshake')
-# 1. 3way handshake
+# 3way handshake
 senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 senderSegment = senderSegment.decode().split('|')
 seq, ack, flags = read_segment(senderSegment, seq)
-write_log('rcv', get_time(), senderSegment) # write syn to log
+write_log_line('rcv', get_time(), senderSegment, log) # write syn to log
 # reply with synack
 replySegment = create_segment(seq, ack, '0110')
 receiverSocket.sendto(replySegment.encode(), senderAddress)
-write_log('snd', get_time(), replySegment.split('|'))
-
+write_log_line('snd', get_time(), replySegment.split('|'), log)
 # ack
 senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 senderSegment = senderSegment.decode().split('|')
-write_log('rcv', get_time(), senderSegment)
+write_log_line('rcv', get_time(), senderSegment, log)
 
-# 2. receving file started
+# receving file started
 with open(file, 'w') as f:
 	f.write('')
 packet_buffer = deque()
@@ -96,8 +95,20 @@ while listening:
 	# keep receiving data, write status to 
 	senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 	senderSegment = senderSegment.decode().split('|')
-	write_log('rcv', get_time(), senderSegment)
-	if senderSegment[0] == ack:
+	write_log_line('rcv', get_time(), senderSegment, log)
+	print(data_received)
+	if senderSegment[0] != ack:
+		print('Out of order packet detected')
+		if int(ack) < int(senderSegment[0]):
+			# write it to log and packet_buffer and update data length received
+			receiverSocket.sendto(replySegment.encode(), senderAddress)
+			write_log_line('snd', get_time(), replySegment.split('|'), log)
+			data_received += len(senderSegment[3])
+			packet_buffer.append(senderSegment)
+		else:
+			nDup_Seg += 1 # Duplicate segment
+		nData_seg += 1
+	else:
 		seq, ack, flags = read_segment(senderSegment, seq)
 		if int(flags[3]):
 			# if it has flag "D"
@@ -106,49 +117,33 @@ while listening:
 			# in order packet
 			nData_seg += 1
 			write_to_file(senderSegment)
-			data_received += + len(senderSegment[3]) # add payload length to data received
+			data_received = data_received + len(senderSegment[3]) # add payload length to data received
 			# if retransmission is trigered
 			if packet_buffer:
 				# while there is something in the packet_buffer, we pop it and write it to the file
 				# we do it until there is no packet in the packet_buffer
 				while packet_buffer[0][0] == ack and len(packet_buffer) > 1:
-					old_packet = packet_buffer.popleft()
-					write_to_file(old_packet)
-					seq, ack, flags = read_segment(old_packet, seq)
-			replySegment = create_segment(seq, ack, '0010')
-			receiverSocket.sendto(replySegment.encode(), senderAddress)
-			write_log('snd', get_time(), replySegment.split('|'))
+					next_header = packet_buffer.popleft()
+					write_to_file(next_header)
+					seq, ack, flags = read_segment(next_header, seq)
+				replySegment = create_segment(seq, ack, '0010')
+				receiverSocket.sendto(replySegment.encode(), senderAddress)
+				write_log_line('snd', get_time(), replySegment.split('|'), log)
 		elif int(flags[0]):
 			# fin is already recorded
 			listening = False
 			print('File transfer completed')
-			print('Connection closing')
-		else:
-			print('unexpected error, need to debug')
-	else:
-		print('Out of order packet detected')
-		if int(ack) < int(senderSegment[0]):
-			# write it to log and packet_buffer and update data length received
-			receiverSocket.sendto(replySegment.encode(), senderAddress)
-			write_log('snd', get_time(), replySegment.split('|'))
-			data_received += len(senderSegment[3])
-			nData_seg += 1
-			packet_buffer.append(senderSegment)
-		else:
-			nDup_Seg += 1 # Duplicate segment
-			nData_seg += 1
 
-# 3. 4-way close connection
+# 4-way close connection
 # FA
 replySegment = create_segment(seq, ack, '1010')
 receiverSocket.sendto(replySegment.encode(), senderAddress)
-write_log('snd', get_time(), replySegment.split('|'))
+write_log_line('snd', get_time(), replySegment.split('|'), log)
 
 # FINAL ACK
 senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 senderSegment = senderSegment.decode().split('|')
-write_log('rcv', get_time(), senderSegment)
-
+write_log_line('rcv', get_time(), senderSegment, log)
 # connection closed
 print('Connection closed')
 receiverSocket.close()
@@ -157,3 +152,4 @@ with open(log, 'a') as f:
 	f.write('\nAmount of Data received: ' + str(data_received))
 	f.write('\nNumber of Data segments Received: ' + str(nData_seg))
 	f.write('\nNumber of duplicate segments received: ' + str(nDup_Seg))
+					
