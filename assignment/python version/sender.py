@@ -133,7 +133,7 @@ if flags[1] and flags[2]:
 senderWindow = deque()
 timeWindow = deque()
 # set a timeout on blocking socket operations
-senderSocket.settimeout(0.0000001)
+senderSocket.settimeout(0.00001)
 seq_isn = seq
 lastByteSent = seq
 lastByteAcked = seq
@@ -143,7 +143,7 @@ is_finished = False
 while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 	# send if sender window is not full and there is still lines to send
 	# LastByteSent – LastByteAcked ≤ MWS and line_index <= nLines
-	if (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
+	if (int(lastByteSent) - int(lastByteAcked)) + MSS <= MWS and line_index <= nLines:
 		sendSegment = create_segment(lastByteSent, ack, '0001', linesToSend[line_index])
 		# update LastByteSent to next sequence number
 		lastByteSent = str(int(lastByteSent) + len(linesToSend[line_index]))
