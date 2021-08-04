@@ -6,7 +6,9 @@ import os
 import random
 import time
 from collections import deque
+import threading
 
+t_lock=threading.Condition()
 # creates a segment
 def create_segment(seq, ack, flag, payload=''):
 	return (seq + '|' + ack + '|' + flag + '|' + payload)
