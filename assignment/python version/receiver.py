@@ -98,8 +98,8 @@ while listening:
 	senderSegment = senderSegment.decode().split('|')
 	write_log('rcv', get_time(), senderSegment)
 	if senderSegment[0] == ack:
-		seq, ack, flags = read_segment(senderSegment, seq)
-		if int(flags[3]):
+		if int(senderSegment[2][3]):
+			seq, ack, flags = read_segment(senderSegment, seq)
 			# if it has flag "D"
 			# two cases
 			# retransmission
@@ -111,37 +111,30 @@ while listening:
 			if packet_buffer:
 				# while there is something in the packet_buffer, we pop it and write it to the file
 				# we do it until there is no packet in the packet_buffer
-				while packet_buffer[0][0] == ack and len(packet_buffer) > 0:
+				while packet_buffer[0][0] == ack and len(packet_buffer) > 1:
 					next_segment = packet_buffer.popleft()
 					write_to_file(next_segment)
-					data_received += + len(next_segment[3])
+					data_received += len(next_segment[3])
 					seq, ack, flags = read_segment(next_segment, seq)
-					replySegment = create_segment(seq, ack, '0010')
-					receiverSocket.sendto(replySegment.encode(), senderAddress)
-					if len(packet_buffer) == 0:
-						break
-			else:
-				replySegment = create_segment(seq, ack, '0010')
-				receiverSocket.sendto(replySegment.encode(), senderAddress)
-				write_log('snd', get_time(), replySegment.split('|'))
-		elif int(flags[0]):
+			replySegment = create_segment(seq, ack, '0010')
+			receiverSocket.sendto(replySegment.encode(), senderAddress)
+			write_log('snd', get_time(), replySegment.split('|'))
+		elif int(senderSegment[2][0]):
+			seq, ack, flags = read_segment(senderSegment, seq)
 			# fin
 			listening = False
 			print('File transfer completed')
 			print('Connection closing')
-		else:
-			print('unexpected error, need to debug')
 	else:
 		# print('Out of order packet detected')
 		# print(ack, senderSegment[0])
 		if int(ack) < int(senderSegment[0]):
-			print(seq, ack)
 			# write it to log and packet_buffer and update data length received
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
 			packet_buffer.append(senderSegment)
 		else:
-			nDup_Seg += 1 # Duplicate segment
+			nDup_Seg += 1
 		nData_seg += 1
 		
 # 3. 4-way close connection

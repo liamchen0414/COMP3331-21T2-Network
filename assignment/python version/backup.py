@@ -131,9 +131,8 @@ if flags[1] and flags[2]:
 # 2. sending file
 # sliding window
 senderWindow = deque()
-timeWindow = deque()
 # set a timeout on blocking socket operations
-senderSocket.settimeout(0.00001)
+senderSocket.settimeout(timeout)
 seq_isn = seq
 lastByteSent = seq
 lastByteAcked = seq
@@ -143,31 +142,35 @@ is_finished = False
 while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 	# send if sender window is not full and there is still lines to send
 	# LastByteSent – LastByteAcked ≤ MWS and line_index <= nLines
-	if (int(lastByteSent) - int(lastByteAcked)) + MSS <= MWS and line_index <= nLines:
+	if (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
 		sendSegment = create_segment(lastByteSent, ack, '0001', linesToSend[line_index])
 		# update LastByteSent to next sequence number
 		lastByteSent = str(int(lastByteSent) + len(linesToSend[line_index]))
 		senderWindow.append(sendSegment)
-		timeWindow.append(time.time())
+		single_timer = time.time()
 		# sending packet to PL module
 		PL_module(sendSegment, senderSocket, 0)
 		line_index += 1
 	else:
-		
 		# resend packet if a timeout
-		if (time.time() - timeWindow[0] >= timeout) or triple_dup_counter == 3:
+		if (time.time() - single_timer >= timeout) or triple_dup_counter == 3:
 			# a retransmission should also be fed to pl module, change is_retrans flag to 1
 			if triple_dup_counter == 3:
 				triple_dup_counter == 0
-
+			# if timeout, but it has been acked, so don't send
+			
+			# if (int(lastByteAcked) > int(senderWindow[0].split('|')[0])):
+				# don't send
 			PL_module(senderWindow[0], senderSocket, 1)
 			# update the retrans packet sent time
-			timeWindow[0] = time.time()
+			single_timer = time.time()
 		try:
 			receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
 			lastByteAcked = check_ack_receiver(receiverSegment)
 			receiverSegment = receiverSegment.decode().split('|')
+			print(lastByteAcked, senderWindow[0].split('|')[0], seq)
 			write_log('rcv', get_time(), receiverSegment)
+			
 			# duplicate acks
 			if int(lastByteAcked) < int(senderWindow[0].split('|')[0])  + len(linesToSend[line_index - 1]):
 				nDuplicates += 1
@@ -176,9 +179,8 @@ while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 			else:
 				seq, ack, flags = read_segment(receiverSegment)
 				# if there are still pakcets in the sender window
-				while int(senderWindow[0].split('|')[0]) < int(seq) and len(senderWindow) > 0:
+				while int(senderWindow[0].split('|')[0]) < int(lastByteAcked):
 					senderWindow.popleft()
-					timeWindow.popleft()
 					if len(senderWindow) == 0:
 						is_finished = True
 						break

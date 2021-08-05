@@ -6,9 +6,7 @@ import os
 import random
 import time
 from collections import deque
-import threading
 
-t_lock=threading.Condition()
 # creates a segment
 def create_segment(seq, ack, flag, payload=''):
 	return (seq + '|' + ack + '|' + flag + '|' + payload)
@@ -131,9 +129,8 @@ if flags[1] and flags[2]:
 # 2. sending file
 # sliding window
 senderWindow = deque()
-timeWindow = deque()
 # set a timeout on blocking socket operations
-senderSocket.settimeout(0.00001)
+senderSocket.settimeout(0.0000001)
 seq_isn = seq
 lastByteSent = seq
 lastByteAcked = seq
@@ -143,26 +140,25 @@ is_finished = False
 while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 	# send if sender window is not full and there is still lines to send
 	# LastByteSent – LastByteAcked ≤ MWS and line_index <= nLines
-	if (int(lastByteSent) - int(lastByteAcked)) + MSS <= MWS and line_index <= nLines:
+	if (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
 		sendSegment = create_segment(lastByteSent, ack, '0001', linesToSend[line_index])
 		# update LastByteSent to next sequence number
 		lastByteSent = str(int(lastByteSent) + len(linesToSend[line_index]))
 		senderWindow.append(sendSegment)
-		timeWindow.append(time.time())
+		single_timer = time.time()
 		# sending packet to PL module
 		PL_module(sendSegment, senderSocket, 0)
 		line_index += 1
 	else:
-		
 		# resend packet if a timeout
-		if (time.time() - timeWindow[0] >= timeout) or triple_dup_counter == 3:
+		if (time.time() - single_timer >= timeout) or triple_dup_counter == 3:
 			# a retransmission should also be fed to pl module, change is_retrans flag to 1
 			if triple_dup_counter == 3:
 				triple_dup_counter == 0
-
-			PL_module(senderWindow[0], senderSocket, 1)
-			# update the retrans packet sent time
-			timeWindow[0] = time.time()
+			else:
+				PL_module(senderWindow[0], senderSocket, 1)
+				# update the retrans packet sent time
+				single_timer = time.time()
 		try:
 			receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
 			lastByteAcked = check_ack_receiver(receiverSegment)
@@ -178,7 +174,6 @@ while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 				# if there are still pakcets in the sender window
 				while int(senderWindow[0].split('|')[0]) < int(seq) and len(senderWindow) > 0:
 					senderWindow.popleft()
-					timeWindow.popleft()
 					if len(senderWindow) == 0:
 						is_finished = True
 						break
