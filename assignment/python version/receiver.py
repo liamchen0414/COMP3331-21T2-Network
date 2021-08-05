@@ -92,7 +92,7 @@ with open(file, 'w') as f:
 	f.write('')
 packet_buffer = deque()
 while listening:
-	print('File transfering......')
+	# print('File transfering......')
 	# keep receiving data, write status to 
 	senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 	senderSegment = senderSegment.decode().split('|')
@@ -111,14 +111,19 @@ while listening:
 			if packet_buffer:
 				# while there is something in the packet_buffer, we pop it and write it to the file
 				# we do it until there is no packet in the packet_buffer
-				while packet_buffer[0][0] == ack and len(packet_buffer) > 1:
+				while packet_buffer[0][0] == ack and len(packet_buffer) > 0:
 					next_segment = packet_buffer.popleft()
 					write_to_file(next_segment)
 					data_received += + len(next_segment[3])
 					seq, ack, flags = read_segment(next_segment, seq)
-			replySegment = create_segment(seq, ack, '0010')
-			receiverSocket.sendto(replySegment.encode(), senderAddress)
-			write_log('snd', get_time(), replySegment.split('|'))
+					replySegment = create_segment(seq, ack, '0010')
+					receiverSocket.sendto(replySegment.encode(), senderAddress)
+					if len(packet_buffer) == 0:
+						break
+			else:
+				replySegment = create_segment(seq, ack, '0010')
+				receiverSocket.sendto(replySegment.encode(), senderAddress)
+				write_log('snd', get_time(), replySegment.split('|'))
 		elif int(flags[0]):
 			# fin
 			listening = False
@@ -127,9 +132,10 @@ while listening:
 		else:
 			print('unexpected error, need to debug')
 	else:
-		print('Out of order packet detected')
-		print(ack, senderSegment[0])
+		# print('Out of order packet detected')
+		# print(ack, senderSegment[0])
 		if int(ack) < int(senderSegment[0]):
+			print(seq, ack)
 			# write it to log and packet_buffer and update data length received
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
