@@ -6,6 +6,8 @@ import os
 import random
 import time
 from collections import deque
+from multiprocessing import Process
+import threading
 
 # creates a segment
 def create_segment(seq, ack, flag, payload=''):
@@ -42,7 +44,7 @@ def check_ack_receiver(segment):
 def get_time():
 	return time.time()-start_time
 
-# writes a line to log
+# writes a line to sender_log
 def write_log(status, time, segment):
 	flag_type = ''
 	flag_list = ['F','S','A','D']
@@ -67,8 +69,38 @@ def PL_module(segment, senderSocket, is_retrans):
 	else:
 		status = 'drop'
 		nSeg_drop += 1 # if segment is dropped, increment the segment drop counter
-	# write to log
+	# write to sender_log
 	write_log(status, get_time(), segment.split('|'))
+
+def recv_data(senderSocket):
+	global receiverAddress, lastByteAcked, nDuplicates, triple_dup_counter, is_finished
+	while True:
+		receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
+		lastByteAcked = check_ack_receiver(receiverSegment)
+		receiverSegment = receiverSegment.decode().split('|')
+		write_log('rcv', get_time(), receiverSegment)
+		if not receiverSegment or int(receiverSegment[2][0]):
+			break
+		else:
+			if senderWindow:
+				if int(lastByteAcked) < int(senderWindow[0].split('|')[0])  + len(linesToSend[line_index - 1]):
+					nDuplicates += 1
+					triple_dup_counter += 1
+					# sendSegment = create_segment(seq, ack, '0010')
+					# senderSocket.sendto(sendSegment.encode(), receiverAddress)
+					# write_log('rcv', get_time(), sendSegment.split('|'))
+			# read ACK removes acknowledged segments from buffer and updates window.
+				else:
+					seq, ack, flags = read_segment(receiverSegment)
+					# if there are still pakcets in the sender window
+					while int(senderWindow[0].split('|')[0]) < int(seq) and len(senderWindow) > 0:
+						senderWindow.popleft()
+						if len(senderWindow) == 0:
+							is_finished = True
+							print(is_finished)
+							break
+	time.sleep(0.001)
+
 
 # Main program
 # Confirm there are enough supplied arguments.
@@ -89,7 +121,7 @@ random.seed(int(sys.argv[8]))
 # Assign other variables.
 seq = '0'
 ack = '0'
-log = 'Sender_log.txt'
+sender_log = 'Sender_log.txt'
 # Assign variables for summary
 nSeg_drop = 0
 nRetrans_sent = 0
@@ -105,7 +137,7 @@ linesToSend, nLines = resize_line(linesToSend, MSS)
 senderSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 receiverAddress = (receiver_host_ip, receiver_port)
 start_time = time.time()
-with open(log, 'w') as f:
+with open(sender_log, 'w') as f:
 	f.write('')
 
 print('Initiating 3-way handshaking')
@@ -130,17 +162,18 @@ if flags[1] and flags[2]:
 # sliding window
 senderWindow = deque()
 # set a timeout on blocking socket operations
-senderSocket.settimeout(0.0000001)
 seq_isn = seq
 lastByteSent = seq
 lastByteAcked = seq
 line_index = 0
 is_finished = False
-
+p = threading.Thread(target=recv_data, args=(senderSocket, ))
+p.start()
 while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
+
 	# send if sender window is not full and there is still lines to send
 	# LastByteSent – LastByteAcked ≤ MWS and line_index <= nLines
-	if (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
+	while (int(lastByteSent) - int(lastByteAcked)) <= MWS and line_index <= nLines:
 		sendSegment = create_segment(lastByteSent, ack, '0001', linesToSend[line_index])
 		# update LastByteSent to next sequence number
 		lastByteSent = str(int(lastByteSent) + len(linesToSend[line_index]))
@@ -149,49 +182,31 @@ while int(seq)-int(seq_isn) < bytes_in_file and not(is_finished):
 		# sending packet to PL module
 		PL_module(sendSegment, senderSocket, 0)
 		line_index += 1
-	else:
-		# resend packet if a timeout
-		if (time.time() - single_timer >= timeout) or triple_dup_counter == 3:
-			# a retransmission should also be fed to pl module, change is_retrans flag to 1
-			if triple_dup_counter == 3:
-				triple_dup_counter == 0
-			else:
-				PL_module(senderWindow[0], senderSocket, 1)
-				# update the retrans packet sent time
-				single_timer = time.time()
-		try:
-			receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
-			lastByteAcked = check_ack_receiver(receiverSegment)
-			receiverSegment = receiverSegment.decode().split('|')
-			write_log('rcv', get_time(), receiverSegment)
-			# duplicate acks
-			if int(lastByteAcked) < int(senderWindow[0].split('|')[0])  + len(linesToSend[line_index - 1]):
-				nDuplicates += 1
-				triple_dup_counter += 1
-			# read ACK removes acknowledged segments from buffer and updates window.
-			else:
-				seq, ack, flags = read_segment(receiverSegment)
-				# if there are still pakcets in the sender window
-				while int(senderWindow[0].split('|')[0]) < int(seq) and len(senderWindow) > 0:
-					senderWindow.popleft()
-					if len(senderWindow) == 0:
-						is_finished = True
-						break
-		except socket.timeout:
-			continue
-senderSocket.settimeout(None)
+
+	if (time.time() - single_timer >= timeout) or triple_dup_counter == 3:
+		# a retransmission should also be fed to pl module, change is_retrans flag to 1
+		if triple_dup_counter == 3:
+			triple_dup_counter == 0
+		if len(senderWindow) > 0:
+			PL_module(senderWindow[0], senderSocket, 1)
+			# update the retrans packet sent time
+			single_timer = time.time()
+
 
 # 3. close connection
 # Sends FIN
-seq_aft = seq
-sendSegment = create_segment(seq, ack, '1000')
+print(lastByteAcked,ack)
+seq_aft = lastByteAcked
+sendSegment = create_segment(str(lastByteAcked), ack, '1000')
 senderSocket.sendto(sendSegment.encode(), receiverAddress)
 write_log('snd', get_time(), sendSegment.split('|'))
 # Receive FA.
-receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
-receiverSegment = receiverSegment.decode().split('|')
-seq, ack, flags = read_segment(receiverSegment)
-write_log('rcv', get_time(), receiverSegment)
+# print('debug line')
+# receiverSegment, receiverAddress = senderSocket.recvfrom(2048)
+# receiverSegment = receiverSegment.decode().split('|')
+# seq, ack, flags = read_segment(receiverSegment)
+# write_log('rcv', get_time(), receiverSegment)
+print('debug line')
 # Returns final ACK
 ack = str(int(ack)+1)
 sendSegment = create_segment(seq, ack, '0010')
@@ -202,7 +217,7 @@ print('Closing connection......')
 senderSocket.close()
 print('Connection is closed')
 
-with open(log, 'a') as f:
+with open(sender_log, 'a+') as f:
 	f.write('\nAmount of Data Transferred: ' + str(int(seq_aft) - int(seq_isn)))
 	f.write('\nNumber of Data Segments Sent: ' + str(nSegmentSent))
 	f.write('\nNumber of Packets Dropped: ' + str(nSeg_drop))

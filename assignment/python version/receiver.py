@@ -19,7 +19,6 @@ def read_segment(segment, seq):
 	flags = segment[2]
 	return seq, ack, flags
 
-# append a line to file
 def write_to_file(segment):
 	with open(file, 'a') as f:
 		f.write(segment[3])
@@ -90,52 +89,47 @@ write_log('rcv', get_time(), senderSegment)
 # 2. receving file started
 with open(file, 'w') as f:
 	f.write('')
-packet_buffer = deque()
+dict_buffer = {}
 while listening:
 	# print('File transfering......')
 	# keep receiving data, write status to 
 	senderSegment, senderAddress = receiverSocket.recvfrom(2048)
 	senderSegment = senderSegment.decode().split('|')
 	write_log('rcv', get_time(), senderSegment)
-	if senderSegment[0] == ack:
-		if int(senderSegment[2][3]):
+	if int(senderSegment[2][3]): # a data packet is received
+		if senderSegment[0] == ack:
 			seq, ack, flags = read_segment(senderSegment, seq)
-			# if it has flag "D"
-			# two cases
-			# retransmission
-			# in order packet
 			nData_seg += 1
 			write_to_file(senderSegment)
 			data_received += len(senderSegment[3])
 			# if retransmission is trigered
-			if packet_buffer:
-				# while there is something in the packet_buffer, we pop it and write it to the file
-				# we do it until there is no packet in the packet_buffer
-				while packet_buffer[0][0] == ack and len(packet_buffer) > 1:
-					next_segment = packet_buffer.popleft()
-					write_to_file(next_segment)
-					data_received += len(next_segment[3])
-					seq, ack, flags = read_segment(next_segment, seq)
+			while ack in dict_buffer:
+				next_segment = dict_buffer.pop(ack)
+				write_to_file(next_segment)
+				data_received += len(next_segment[3])
+				nData_seg += 1
+				seq, ack, flags = read_segment(next_segment, seq)
 			replySegment = create_segment(seq, ack, '0010')
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
-		elif int(senderSegment[2][0]):
-			seq, ack, flags = read_segment(senderSegment, seq)
-			# fin
-			listening = False
-			print('File transfer completed')
-			print('Connection closing')
-	else:
-		# print('Out of order packet detected')
-		# print(ack, senderSegment[0])
-		if int(ack) < int(senderSegment[0]):
-			# write it to log and packet_buffer and update data length received
+		else:
+			print(senderSegment[0], ack)
+			replySegment = create_segment(seq, ack, '0010')
 			receiverSocket.sendto(replySegment.encode(), senderAddress)
 			write_log('snd', get_time(), replySegment.split('|'))
-			packet_buffer.append(senderSegment)
-		else:
-			nDup_Seg += 1
-		nData_seg += 1
+			# out of order packet received
+			if int(senderSegment[0]) < int(ack):
+				print(senderSegment[0], ack)
+				nDup_Seg += 1
+			dict_buffer[senderSegment[0]] = senderSegment
+			
+	elif int(senderSegment[2][0]):
+		seq, ack, flags = read_segment(senderSegment, seq)
+		# fin
+		listening = False
+		print('File transfer completed')
+		print('Connection closing')
+
 		
 # 3. 4-way close connection
 # FA

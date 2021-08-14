@@ -109,11 +109,11 @@ public class Receiver {
 			payload = line[3];
 			// if it is data packet
 			if (flags.equals("D")){
+				write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 				if (seq_sender == ack_receiver) {
 					// b. two scenarios, 1 is normal packet, 2 is retransmission
 					if(buffer.containsKey(ack_receiver + payload.length())){
 						// ack the current packet
-						write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 						while(buffer.containsKey(ack_receiver + payload.length())) {
 							// get packets from buffer and write to file
 							String value = buffer.get(ack_receiver + payload.length());
@@ -124,14 +124,12 @@ public class Receiver {
 							seq_sender = seq_sender + payload.length();
 							System.out.println("Moving packet + " + seq_sender + " with length +" + payload.length());
 							buffer.remove(seq_sender);
-							
 						}
 						ack_receiver += payload.length();
 						segment = makeSegment(seq_receiver, ack_receiver, "A", "");
 						sendSegment(segment);
 						write_to_log("snd", getTime(), "A", seq_receiver, 0, ack_receiver);
 					} else {
-						write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 						writeFile(f, payload); // write the payload to the received file
 						seq_receiver = ack_sender;
 						ack_receiver = seq_sender + payload.length(); // add payload length
@@ -145,9 +143,7 @@ public class Receiver {
 
 				} else if (seq_sender > ack_receiver) {
 					System.out.println("Dectecting out of order packet....." + seq_sender);
-					write_to_log("rcv", getTime(), "D", seq_sender, payload.length(), ack_sender);
 					// 1. put the out of order packet in buffer
-					System.out.println(payload);
 					buffer.put(seq_sender, payload);
 					ack_out = seq_sender + payload.length();
 					flags = "0010";
